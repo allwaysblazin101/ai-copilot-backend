@@ -1,0 +1,5536 @@
+FILE: ./tests/test_real_email.py
+---------------------------------------
+import os
+from dotenv import load_dotenv
+from backend.services.email.email_service import EmailService
+
+
+def test_real_email_read():
+
+    load_dotenv("backend/secrets/.env")
+
+    # Only verify env exists
+    # Do NOT run real OAuth during CI tests
+
+    assert os.getenv("EMAIL_USER") is not None
+    assert os.getenv("EMAIL_PASS") is not None
+
+    # Disable auth for test safety
+    service = EmailService(enable_auth=False)
+
+    emails = service.read_unread_emails()
+
+    assert isinstance(emails, list)
+
+    print("\nLatest Emails:")
+    for mail in emails:
+        print(mail.get("subject"))
+-e 
+=======================================
+
+FILE: ./tests/test_brain_manual.py
+---------------------------------------
+import pytest
+from backend.brain.master_brain import MasterBrain
+
+
+@pytest.mark.asyncio
+async def test_brain():
+
+    brain = MasterBrain()
+
+    print("\nTesting brain thinking...")
+
+    result = await brain.think(
+        "Hello AI, test email planning and productivity",
+        {
+            "sentiment": 0.7
+        }
+    )
+
+    print(result)
+
+    assert "reply_text" in result-e 
+=======================================
+
+FILE: ./tests/test_calendar_fetch.py
+---------------------------------------
+from backend.services.google.google_auth import GoogleAuth
+from backend.services.calendar.calendar_service import CalendarService
+from backend.utils.logger import logger
+from datetime import datetime, timedelta
+
+auth = GoogleAuth()
+creds = auth.credentials
+cal = CalendarService(creds)
+
+if cal.service:
+    print("Calendar ready — creating test event...")
+    
+    # Create a test event 1 hour from now
+    start = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    end = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    
+    result = cal.create_event(
+        summary="AI Copilot Test Event",
+        start_time=start,
+        end_time=end,
+        description="This is a test created by the copilot integration",
+        location="Virtual"
+    )
+    print("Create result:", result)
+
+    # Now list events to verify
+    events = cal.list_upcoming_events(max_results=5)
+    print("Upcoming events after create:")
+    for e in events:
+        print(f"- {e['start']} | {e['summary']}")
+else:
+    print("Calendar failed to initialize")-e 
+=======================================
+
+FILE: ./tests/test_email.py
+---------------------------------------
+import os
+from unittest.mock import patch, MagicMock
+from backend.services.email.email_service import EmailService
+
+
+@patch("imaplib.IMAP4_SSL")
+def test_email_connection(mock_imap):
+
+    mock_instance = MagicMock()
+    mock_imap.return_value = mock_instance
+
+    os.environ["EMAIL_USER"] = "test@gmail.com"
+    os.environ["EMAIL_PASS"] = "testpass"
+
+    service = EmailService(enable_auth=False)
+
+    assert service.read_unread_emails() is not None-e 
+=======================================
+
+FILE: ./tests/test_brain_tools.py
+---------------------------------------
+# backend/tests/test_brain_tools.py
+import pytest
+from backend.brain.master_brain import MasterBrain
+from backend.utils.logger import logger
+
+
+@pytest.mark.asyncio
+async def test_tool_amazon_search():
+    logger.info("=== Starting amazon_search tool integration test ===")
+
+    brain = MasterBrain()
+    logger.debug("MasterBrain initialized successfully")
+
+    context = {
+        "tool": "amazon_search",
+        "tool_args": {
+            "product": "paper towels"
+        }
+    }
+
+    user_message = "Find paper towels"
+    logger.info(f"Sending message to brain: '{user_message}'")
+    logger.debug(f"With context: {context}")
+
+    try:
+        result = await brain.think(user_message, context)
+        logger.success("brain.think() completed without exception")
+
+        # Basic structural checks
+        assert "reply_text" in result, "Response missing 'reply_text'"
+        assert isinstance(result["reply_text"], str), "'reply_text' should be a string"
+        assert "tool_result" in result, "Response missing 'tool_result'"
+
+        logger.info(f"AI reply: {result['reply_text'][:200]}{'...' if len(result['reply_text']) > 200 else ''}")
+        logger.info(f"Tool result: {result.get('tool_result')}")
+
+        print("\n=== AMAZON SEARCH TEST RESULT ===")
+        print(result)
+
+    except Exception as e:
+        logger.error("Test failed during amazon_search", exc_info=True)
+        raise
+
+
+@pytest.mark.asyncio
+async def test_create_calendar_event():
+    logger.info("=== Starting create_calendar_event tool integration test ===")
+
+    brain = MasterBrain()
+    logger.debug("MasterBrain initialized successfully")
+
+    context = {
+        "tool": "create_calendar_event",
+        "tool_args": {
+            "summary": "Test Meeting with Grok",
+            "start": "tomorrow at 3pm",
+            "end": "tomorrow at 4pm"  # optional but recommended
+        }
+    }
+
+    user_message = "Schedule a test meeting tomorrow at 3pm"
+    logger.info(f"Sending message to brain: '{user_message}'")
+    logger.debug(f"With context: {context}")
+
+    try:
+        result = await brain.think(user_message, context)
+        logger.success("brain.think() completed without exception")
+
+        # Basic assertions
+        assert "reply_text" in result, "Response missing 'reply_text'"
+        assert "tool_result" in result, "Response missing 'tool_result'"
+        assert isinstance(result["tool_result"], dict), "tool_result should be a dict"
+
+        # Check if creation succeeded
+        tool_result = result["tool_result"]
+        if "success" in tool_result:
+            logger.success(f"Event created! ID: {tool_result.get('event_id')}")
+        else:
+            logger.warning(f"Event creation returned: {tool_result}")
+
+        logger.info(f"AI reply: {result['reply_text'][:200]}{'...' if len(result['reply_text']) > 200 else ''}")
+        logger.info(f"Tool result: {tool_result}")
+
+        print("\n=== CREATE CALENDAR EVENT TEST RESULT ===")
+        print(result)
+
+    except Exception as e:
+        logger.error("Test failed during create_calendar_event", exc_info=True)
+        raise-e 
+=======================================
+
+FILE: ./tests/test_tools.py
+---------------------------------------
+from backend.tools.registry import list_tools
+from backend.tools.tool_executor import execute_tool
+
+import backend.tools  # triggers auto load
+
+print("Loaded Tools:")
+print(list_tools())
+
+print(execute_tool("amazon_search", {
+    "product": "laptop"
+}))-e 
+=======================================
+
+FILE: ./tests/test_calendar.py
+---------------------------------------
+# backend/tests/test_calendar.py
+from backend.services.calendar.calendar_service import CalendarService
+from backend.services.email.email_service import EmailService
+import datetime
+
+email_svc = EmailService()
+calendar = CalendarService(email_svc.creds)
+
+print("Upcoming events:")
+events = calendar.list_upcoming_events(max_results=5)
+for e in events:
+    print(f"- {e['start']} → {e['summary']}")
+
+# Example create (comment out after testing!)
+# result = calendar.create_event(
+#     "AI Test Meeting",
+#     datetime.datetime.now().isoformat(),
+#     (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat(),
+#     "Testing calendar integration"
+# )
+# print(result)-e 
+=======================================
+
+FILE: ./tests/test_tool_router.py
+---------------------------------------
+# backend/tests/test_tool_router.py
+import pytest
+from backend.tools.tool_router import ToolRouter
+from backend.utils.logger import logger
+
+
+@pytest.mark.asyncio
+async def test_send_sms_manual_handler():
+    logger.info("=== Starting send_sms manual handler test ===")
+
+    router = ToolRouter()
+    logger.debug("ToolRouter initialized")
+
+    # Mock payload — invalid number on purpose to test error path safely
+    payload = {
+        "body": "Test message from AI copilot integration test",
+        "to": "test-phone-number"  # invalid → triggers Twilio 21211
+    }
+
+    logger.info("Executing send_sms via manual handler")
+    result = router.execute("send_sms", payload)
+
+    logger.debug(f"Full send_sms result: {result}")
+
+    # Assertions
+    assert isinstance(result, dict)
+    assert "error" in result, "Expected an error response from send_sms"
+
+    error_msg = result["error"].lower()
+    logger.info(f"Received expected error: {result['error']}")
+
+    # Accept any of these common safe errors
+    expected_phrases = [
+        "invalid 'to' phone number",          # Twilio 21211
+        "twilio client not initialized",      # no creds
+        "user confirmation required",         # high-risk block
+        "twilio error"                        # generic Twilio fail
+    ]
+
+    assert any(phrase in error_msg for phrase in expected_phrases), \
+        f"Unexpected error message: {result['error']}. Expected one of: {expected_phrases}"
+
+    print("\n=== send_sms TEST RESULT (expected safe failure) ===")
+    print(result)-e 
+=======================================
+
+FILE: ./tests/test_memory.py
+---------------------------------------
+import asyncio
+from backend.memory.persistent_memory import PersistentMemoryStore
+
+
+def test_memory():
+
+    mem = PersistentMemoryStore()
+
+    print(mem.recall_recent())
+
+
+if __name__ == "__main__":
+    test_memory()-e 
+=======================================
+
+FILE: ./security/tool_guard.py
+---------------------------------------
+class ToolGuard:
+    SAFE_TOOLS = {
+    "chat",
+    "send_sms",
+    "shop_search",
+    "food_suggest",
+    "amazon_search",
+    "web_search",
+    "order_food",
+    "restaurant_search",
+    "create_calendar_event",
+    "calendar_list",
+    "reply_email",
+}
+    
+
+    def reply_email(self, payload): # Ensure this is indented exactly like 'execute'
+        try:
+            service = EmailService()
+            service.send_email(
+                to=payload.get("to"),
+                subject=payload.get("subject", "AI Reply"),
+                body=payload.get("body", "")
+            )
+            return {"success": True}
+        except Exception as e:
+            return {"error": str(e)}
+
+
+    def allow(self, tool_name):
+        allowed = tool_name in self.SAFE_TOOLS
+        if not allowed:
+            from backend.utils.logger import logger
+            logger.warning(f"Tool blocked by safety policy: {tool_name}")
+        return allowed-e 
+=======================================
+
+FILE: ./security/policy_guard.py
+---------------------------------------
+class PolicyGuard:
+
+    def __init__(self):
+
+        self.blocked_actions = [
+            "hack",
+            "illegal",
+            "steal",
+            "exploit"
+        ]
+
+    def allow(self, intent):
+
+        for word in self.blocked_actions:
+            if word in intent.lower():
+                return False
+
+        return True-e 
+=======================================
+
+FILE: ./security/safety_governor.py
+---------------------------------------
+
+class SafetyGovernor:
+
+    def init(self):
+
+        # High risk actions require confirmation
+        self.dangerous_actions = {
+            "delete_email",
+            "execute_trade",
+            "send_bulk_sms",
+            "transfer_money"
+        }
+
+    def allow(self, action):
+
+        if not action:
+            return False
+
+        return action not in self.dangerous_actions
+
+    def requires_confirmation(self, action):
+
+        return action in self.dangerous_actions
+
+-e 
+=======================================
+
+FILE: ./security/logging_system.py
+---------------------------------------
+import logging
+import os
+
+LOG_FILE = "backend/secrets/ai_system.log"
+
+os.makedirs("backend/secrets", exist_ok=True)
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s"
+)
+
+
+class AILogger:
+
+    @staticmethod
+    def log_event(event):
+        logging.info(event)
+
+    @staticmethod
+    def log_error(error):
+        logging.error(error)-e 
+=======================================
+
+FILE: ./security/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./utils/logger.py
+---------------------------------------
+from loguru import logger
+import sys
+import os
+
+LOG_DIR = os.path.expanduser("~/ai-copilot/backend/secrets/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logger.remove()  # remove default handler
+logger.add(
+    sys.stderr,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="DEBUG" if os.getenv("DEBUG") else "INFO"
+)
+logger.add(
+    os.path.join(LOG_DIR, "ai_copilot_{time:YYYY-MM-DD}.log"),
+    rotation="500 MB",
+    retention="10 days",
+    level="INFO",
+    serialize=False  # human readable
+)-e 
+=======================================
+
+FILE: ./tools/weather_tool.py
+---------------------------------------
+import httpx
+from backend.tools.registry import register_tool # Updated path based on your earlier logs
+
+class WeatherTool:
+    async def get_weather(self, location="Toronto"):
+        coords = await self._geocode(location)
+        if not coords:
+            return {"error": f"Location '{location}' not found"}
+
+        lat, lon = coords["lat"], coords["lon"]
+        # FIXED: Added /v1/forecast and ?latitude=
+        url = f"https://api.open-meteo.com{lat}&longitude={lon}&current_weather=true"
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()["current_weather"]
+
+        return {
+            "location": location,
+            "temperature_c": data["temperature"],
+            "wind_kph": data["windspeed"],
+            "time": data["time"]
+        }
+
+    async def _geocode(self, location):
+        # FIXED: Added /v1/search
+        url = "https://geocoding-api.open-meteo.com/v1/search"
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params={"name": location, "count": 1})
+            r.raise_for_status()
+            data = r.json()
+            if "results" not in data or not data["results"]: 
+                return None
+            res = data["results"][0]
+            return {"lat": res["latitude"], "lon": res["longitude"]}
+
+# --- REGISTRATION ---
+weather_instance = WeatherTool()
+
+@register_tool("weather", "Get current weather for a location")
+async def get_weather_tool(location="Toronto"):
+    # Ensure we pass the location string, not the full payload dict if coming from MasterBrain
+    loc = location.get("location", "Toronto") if isinstance(location, dict) else location
+    return await weather_instance.get_weather(loc)
+-e 
+=======================================
+
+FILE: ./tools/validator.py
+---------------------------------------
+# backend/tools/validator.py
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Dict
+
+class ToolResponse(BaseModel):
+    status: str = Field(..., pattern="^(success|error|pending)$")
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    error_code: Optional[str] = None
+
+    @classmethod
+    def success(cls, message: str, data: Any = None):
+        return cls(status="success", message=message, data=data)
+
+    @classmethod
+    def error(cls, message: str, code: str = "GENERIC_ERROR"):
+        return cls(status="error", message=message, error_code=code)
+-e 
+=======================================
+
+FILE: ./tools/amazon_tool.py
+---------------------------------------
+from backend.tools.registry import register_tool
+
+
+@register_tool(
+    name="amazon_search",
+    description="Search Amazon products"
+)
+def search_amazon(payload):
+
+    return [
+        {"name": "Laptop", "price": 999},
+        {"name": "Mouse", "price": 25}
+    ]
+-e 
+=======================================
+
+FILE: ./tools/tool_executor.py
+---------------------------------------
+from backend.tools.registry import get_tool
+
+
+def execute_tool(tool_name, args):
+
+    tool = get_tool(tool_name)
+
+    if not tool:
+        return {"error": "Tool not found"}
+
+    return tool["function"](args)-e 
+=======================================
+
+FILE: ./tools/browser_tool.py
+---------------------------------------
+from playwright.sync_api import sync_playwright
+from backend.tools.registry import register_tool
+
+
+@register_tool(
+    name="browse_website",
+    description="Browse website pages"
+)
+def browse_website(payload):
+
+    url = payload.get("url")
+
+    with sync_playwright() as p:
+
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        page.goto(url)
+
+        title = page.title()
+
+        browser.close()
+
+        return {"title": title}
+-e 
+=======================================
+
+FILE: ./tools/web_search.py
+---------------------------------------
+# backend/tools/web_search.py
+import aiohttp
+from backend.config.settings import settings
+from backend.utils.logger import logger
+
+async def search_the_web(query: str, deep_dive: bool = False):
+    """
+    Tavily Search Tool.
+    Fixed 405 error by using exact URL and Bearer Token header.
+    """
+    if not settings.tavily_api_key:
+        logger.error("❌ TAVILY_API_KEY missing in settings")
+        return {"status": "error", "message": "Search key not configured"}
+
+    api_key = settings.tavily_api_key.get_secret_value()
+    
+    # Audit Fix: Ensure NO trailing slash at the end of the URL
+    url = "https://api.tavily.com/search"
+    
+    # Audit Fix: Tavily requires 'Authorization: Bearer <token>'
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "query": query,
+        "search_depth": "advanced" if deep_dive else "basic",
+        "include_answer": True,
+        "max_results": 5
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Audit Fix: Use uppercase POST and no redirect-prone trailing slash
+            async with session.post(url, json=payload, headers=headers, timeout=15) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    logger.success(f"🌐 Web search successful for: {query}")
+                    return {
+                        "status": "success",
+                        "answer": data.get("answer"),
+                        "sources": [res.get("url") for res in data.get("results", [])[:3]]
+                    }
+                
+                # Capture exact error detail to stop 405/401 loops
+                error_text = await resp.text()
+                logger.error(f"❌ Tavily API {resp.status}: {error_text}")
+                return {"status": "error", "message": f"Search failed: {resp.status}"}
+
+    except Exception as e:
+        logger.error(f"⚠️ Web Search Tool Exception: {e}")
+        return {"status": "error", "message": "Search engine connection failed."}
+-e 
+=======================================
+
+FILE: ./tools/tool_router.py
+---------------------------------------
+import asyncio
+from twilio.rest import Client
+from ddgs import DDGS
+
+from backend.security.tool_guard import ToolGuard
+from backend.utils.logger import logger
+from backend.config.settings import settings
+from backend.tools.weather_tool import WeatherTool
+
+# Services
+from backend.services.email.email_service import EmailService
+from backend.services.shopping.shopping_agent import ShoppingAgent
+from backend.services.food.food_order_agent import FoodOrderAgent
+
+
+class ToolRouter:
+
+    def __init__(self):
+
+        self.twilio_client = None
+        self.guard = ToolGuard()
+        self.weather_tool = WeatherTool()   # FIX: initialize weather tool
+
+        # Twilio init
+        if settings.twilio_account_sid and settings.twilio_auth_token:
+            try:
+                sid = settings.twilio_account_sid.get_secret_value()
+                token = settings.twilio_auth_token.get_secret_value()
+                self.twilio_client = Client(sid, token)
+                logger.success("Twilio initialized")
+            except Exception:
+                logger.error("Twilio init failed", exc_info=True)
+        else:
+            logger.warning("Twilio disabled — missing credentials")
+
+    # --------------------------------------------------
+    # MAIN ENTRY
+    # --------------------------------------------------
+
+    async def execute(self, action: str, payload=None):
+
+        payload = payload or {}
+
+        logger.info(f"ToolRouter received action={action} payload={payload}")
+
+        if not self.guard.allow(action):
+            return {"error": "Tool blocked by safety policy"}
+
+        handlers = {
+            "weather": self.weather,
+            "web_search": self.web_search,
+            "restaurant_search": self.restaurant_search,
+            "order_food": self.order_food,
+            "food_suggest": self.food_suggest,
+            "shop_search": self.shop_search,
+            "send_sms": self.send_sms,
+            "reply_email": self.reply_email,
+            "chat": self.chat
+        }
+
+        handler = handlers.get(action)
+
+        if not handler:
+            return {"error": f"Unknown action {action}"}
+
+        try:
+
+            if asyncio.iscoroutinefunction(handler):
+                return await handler(payload)
+
+            return handler(payload)
+
+        except Exception as e:
+            logger.error(f"Tool execution failed: {action}", exc_info=True)
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------
+
+    async def weather(self, payload):
+
+        location = payload.get("location", "Toronto")
+
+        return await self.weather_tool.get_weather(location)
+
+    # --------------------------------------------------
+    # WEB SEARCH
+    # --------------------------------------------------
+
+    async def web_search(self, payload):
+
+        query = payload.get("query")
+
+        if not query:
+            return {"error": "Missing query"}
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=5))
+
+                formatted = []
+
+                for r in results:
+                    formatted.append({
+                        "title": r.get("title"),
+                        "snippet": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return formatted
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # RESTAURANT DISCOVERY
+    # --------------------------------------------------
+
+    async def restaurant_search(self, payload):
+
+        cuisine = payload.get("cuisine")
+        location = payload.get("location")
+
+        if not cuisine:
+            return {"error": "Cuisine required"}
+
+        query = f"best {cuisine} restaurants in {location or 'near me'}"
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=6))
+
+                restaurants = []
+
+                for r in results:
+
+                    restaurants.append({
+                        "name": r.get("title"),
+                        "description": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return restaurants
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # FOOD ORDERING
+    # --------------------------------------------------
+
+    async def order_food(self, payload):
+
+        agent = FoodOrderAgent()
+
+        return await agent.place_order(payload)
+
+    # --------------------------------------------------
+    # FOOD SUGGESTIONS
+    # --------------------------------------------------
+
+    async def food_suggest(self, payload):
+
+        cuisine = payload.get("cuisine")
+
+        agent = FoodOrderAgent()
+
+        return await agent.suggest(cuisine)
+
+    # --------------------------------------------------
+    # SHOPPING
+    # --------------------------------------------------
+
+    async def shop_search(self, payload):
+
+        agent = ShoppingAgent()
+
+        return await agent.search(payload.get("query"))
+
+    # --------------------------------------------------
+    # SMS
+    # --------------------------------------------------
+
+    def send_sms(self, payload):
+
+        if not self.twilio_client:
+            return {"error": "Twilio client not initialized"}
+
+        try:
+
+            msg = self.twilio_client.messages.create(
+                body=payload.get("body", ""),
+                from_=settings.twilio_number_primary,
+                to=payload.get("to") or settings.owner_number
+            )
+
+            return {"success": True, "sid": msg.sid}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # EMAIL
+    # --------------------------------------------------
+
+    async def reply_email(self, payload):
+
+        try:
+
+            service = EmailService()
+
+            result = await asyncio.to_thread(
+                service.send_email,
+                payload.get("to"),
+                payload.get("subject"),
+                payload.get("body")
+            )
+
+            return {"success": True, "result": result}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # CHAT FALLBACK
+    # --------------------------------------------------
+
+    def chat(self, payload):
+
+        return {
+            "action": "chat",
+            "message": payload.get("message", "")
+        }-e 
+=======================================
+
+FILE: ./tools/argument_extractor.py
+---------------------------------------
+# backend/tools/argument_extractor.py
+import json
+from openai import AsyncOpenAI  # <--- Change this
+from backend.config.settings import settings
+
+class ArgumentExtractor:
+    def __init__(self):
+        # <--- Change this to AsyncOpenAI
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def extract(self, tool_name: str, user_input: str, context: dict):
+        prompt = f"""
+        Extract tool arguments from this input: "{user_input}"
+        Tool: {tool_name}
+        Context: {json.dumps(context.get('persistent', {}))}
+        
+        Return ONLY valid JSON. 
+        Example: {{"date": "2024-10-10", "query": "pizza"}}
+        """
+        # <--- Add 'await' here
+        response = await self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={ "type": "json_object" }
+        )
+        return json.loads(response.choices[0].message.content)
+-e 
+=======================================
+
+FILE: ./tools/walmart_tool.py
+---------------------------------------
+import os
+import requests
+from backend.tools.registry import register_tool
+
+WALMART_KEY = os.getenv("WALMART_API_KEY")
+
+@register_tool(
+    name="walmart_search",
+    description="Search Walmart real catalog"
+)
+def search_walmart(payload):
+
+    query = payload.get("query")
+
+    if not WALMART_KEY:
+        return {"error": "Missing Walmart API key"}
+
+    url = "https://api.walmartlabs.com/v1/search"
+
+    params = {
+        "query": query,
+        "apiKey": WALMART_KEY,
+        "numItems": 10
+    }
+
+    try:
+        res = requests.get(url, params=params, timeout=5)
+        return res.json()
+
+    except Exception as e:
+        return {"error": str(e)}-e 
+=======================================
+
+FILE: ./tools/registry.py
+---------------------------------------
+# backend/tools/registry.py
+
+TOOLS_REGISTRY = {}
+
+
+def register_tool(name, description, function=None):
+    """
+    Register tool function
+    """
+
+    def decorator(func):
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": func
+        }
+        return func
+
+    if function:
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": function
+        }
+        return function
+
+    return decorator
+
+
+def get_tool(name):
+    return TOOLS_REGISTRY.get(name)
+
+
+def list_tools():
+    return list(TOOLS_REGISTRY.keys())
+    
+
+from backend.tools import weather_tool, amazon_tool, walmart_tool, browser_tool, kitchenhub_tool
+
+-e 
+=======================================
+
+FILE: ./tools/__init__.py
+---------------------------------------
+import os
+import importlib
+
+for file in os.listdir(os.path.dirname(__file__)):
+
+    if file.endswith("_tool.py"):
+
+        importlib.import_module(
+            f"backend.tools.{file[:-3]}"
+        )-e 
+=======================================
+
+FILE: ./tools/kitchenhub_tool.py
+---------------------------------------
+from backend.tools.registry import register_tool
+
+
+@register_tool(
+    name="kitchenhub_order",
+    description="Order food using delivery APIs"
+)
+def order_food(payload):
+
+    item = payload.get("item")
+
+    return {
+        "status": "pending",
+        "message": f"Food order created for {item}"
+    }
+-e 
+=======================================
+
+FILE: ./services/email/email_classifier.py
+---------------------------------------
+# backend/services/email/email_classifier.py
+from openai import OpenAI
+import json
+import os
+
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+
+class EmailClassifier:
+    def __init__(self):
+        # Get API key from centralized settings (no more os.getenv)
+        api_key = settings.openai_api_key
+        if not api_key:
+            logger.error("OPENAI_API_KEY missing in settings — email classification will fail")
+            raise ValueError("OPENAI_API_KEY not found in configuration")
+
+        self.client = OpenAI(api_key=api_key.get_secret_value())
+        logger.debug("OpenAI client initialized for email classification")
+
+    def classify(self, subject: str, body: str, sender: str = "") -> dict:
+        """Classify email and return structured JSON"""
+        prompt = f"""
+        Analyze this email for my personal AI assistant:
+
+        From: {sender}
+        Subject: {subject}
+        Body preview: {body[:1000]}
+
+        Return ONLY valid JSON (no extra text):
+
+        {{
+          "category": "PERSONAL | BILL_FINANCE | SPAM_ADS | NEWSLETTER | PROMOTION | OTHER",
+          "is_spam_or_ad": true or false,
+          "is_bill_or_invoice": true or false,
+          "is_personal_human": true or false,
+          "priority": "high" or "medium" or "low",
+          "brief_summary": "one short sentence summary"
+        }}
+        """
+
+        try:
+            logger.info(f"Classifying email: Subject='{subject[:50]}...' From='{sender[:30]}...'")
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=200
+            )
+            content = response.choices[0].message.content.strip()
+
+            # Parse JSON safely
+            classification = json.loads(content)
+            logger.debug(f"Email classified: {classification}")
+            return classification
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON from OpenAI classification: {content}", exc_info=True)
+            return self._fallback_classification()
+
+        except Exception as e:
+            logger.error("Email classification failed", exc_info=True)
+            return self._fallback_classification()
+
+    def _fallback_classification(self):
+        """Safe default if classification fails"""
+        return {
+            "category": "OTHER",
+            "is_spam_or_ad": False,
+            "is_bill_or_invoice": False,
+            "is_personal_human": False,
+            "priority": "medium",
+            "brief_summary": "Classification failed - default applied"
+        }-e 
+=======================================
+
+FILE: ./services/email/email_pipeline.py
+---------------------------------------
+# backend/services/email/email_pipeline.py
+from backend.services.email.email_service import EmailService
+from backend.services.email.email_classifier import EmailClassifier
+from backend.tools.tool_router import ToolRouter
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+
+class EmailPipeline:
+    # Shared instances (init once, reuse)
+    _service = None
+    _classifier = None
+    _tool_router = None
+
+    @classmethod
+    def _get_service(cls):
+        if cls._service is None:
+            cls._service = EmailService()
+            logger.debug("EmailService singleton initialized")
+        return cls._service
+
+    @classmethod
+    def _get_classifier(cls):
+        if cls._classifier is None:
+            cls._classifier = EmailClassifier()
+            logger.debug("EmailClassifier singleton initialized")
+        return cls._classifier
+
+    @classmethod
+    def _get_tool_router(cls):
+        if cls._tool_router is None:
+            cls._tool_router = ToolRouter()
+            logger.debug("ToolRouter singleton initialized")
+        return cls._tool_router
+
+    def __init__(self):
+        self.service = self._get_service()
+        self.classifier = self._get_classifier()
+        self.tool_router = self._get_tool_router()
+        self.owner_phone = settings.owner_number or settings.my_phone_number
+
+        if not self.owner_phone:
+            logger.warning("No owner_phone configured — SMS notifications disabled")
+
+    def process_new_email(self):
+        logger.info("Starting new email processing cycle")
+
+        emails = self.service.read_unread_emails(max_results=20)
+
+        if not emails:
+            logger.info("No new unread emails found")
+            return {"summary": "No new unread emails", "actions_taken": 0, "notifications": []}
+
+        actions_taken = 0
+        notifications = []
+        sms_parts = []
+
+        for email in emails:
+            full_body = email['snippet']
+            if len(full_body) < 200:
+                full_msg = self.service.get_message(email['id'])
+                if full_msg:
+                    full_body = full_msg.get('snippet', '') or email['snippet']
+
+            classification = self.classifier.classify(
+                subject=email['subject'],
+                body=full_body,
+                sender=email['from']
+            )
+
+            category = classification.get('category', 'OTHER')
+            is_spam = classification.get('is_spam_or_ad', False)
+            is_bill = classification.get('is_bill_or_invoice', False)
+            is_personal = classification.get('is_personal_human', False)
+            brief = classification.get('brief_summary', email['snippet'][:100])
+
+            msg_id = email['id']
+
+            if is_spam:
+                self.service.trash_email(msg_id)
+                actions_taken += 1
+                logger.info(f"Trashed spam/ad: {email['subject']}")
+                continue
+
+            if is_bill or is_personal:
+                sms_parts.append(
+                    f"[{category}] {email['subject'][:50]}...\n"
+                    f"From: {email['from'][:40]}\n"
+                    f"{brief}"
+                )
+
+            if is_personal:
+                self.service.mark_as_read(msg_id)
+
+        if sms_parts:
+            message_body = "AI Copilot Alert:\n\n" + "\n\n".join(sms_parts[:5])
+            if len(sms_parts) > 5:
+                message_body += f"\n\n+ {len(sms_parts)-5} more important emails"
+
+            logger.info("Sending consolidated SMS notification")
+            send_result = self.tool_router.execute("send_sms", {
+                "to": self.owner_phone,
+                "body": message_body
+            })
+
+            notifications.append(send_result)
+            logger.debug(f"SMS notification result: {send_result}")
+
+        summary = f"Processed {len(emails)} emails. Trashed {actions_taken} spam/ads."
+        logger.info(summary)
+
+        return {
+            "summary": summary,
+            "actions_taken": actions_taken,
+            "notifications": notifications,
+            "important_count": len(sms_parts)
+        }
+
+
+if __name__ == "__main__":
+    pipeline = EmailPipeline()
+    result = pipeline.process_new_email()
+    print("\nPipeline result:", result)-e 
+=======================================
+
+FILE: ./services/email/email_service.py
+---------------------------------------
+# backend/services/email/email_service.py
+import base64
+from email.mime.text import MIMEText
+
+from googleapiclient.discovery import build
+
+from backend.services.google.google_auth import GoogleAuth
+from backend.utils.logger import logger
+
+
+class EmailService:
+    def __init__(self, enable_auth=True):
+        self.service = None
+
+        if not enable_auth:
+            logger.info("EmailService initialized without auth (mock mode)")
+            return
+
+        # Get shared credentials from GoogleAuth (handles OAuth, refresh, token storage)
+        google_auth = GoogleAuth()
+        creds = google_auth.credentials
+
+        if creds:
+            self.service = build("gmail", "v1", credentials=creds)
+            logger.success("Gmail API service initialized successfully")
+        else:
+            logger.warning("No Google credentials available — Gmail disabled")
+
+    def get_message(self, message_id: str):
+        """Fetch full message data by ID (used by pipeline for detailed body)."""
+        if not self.service:
+            logger.warning("Gmail service not initialized — cannot fetch message")
+            return None
+
+        try:
+            msg_data = self.service.users().messages().get(
+                userId="me",
+                id=message_id,
+                format="full"
+            ).execute()
+            logger.debug(f"Fetched full message ID: {message_id}")
+            return msg_data
+        except Exception as e:
+            logger.error(f"Failed to fetch message {message_id}", exc_info=True)
+            return None
+
+    def trash_email(self, message_id: str) -> bool:
+        """Move an email to Trash by ID."""
+        if not self.service:
+            logger.warning("Gmail service not available — cannot trash email")
+            return False
+
+        try:
+            self.service.users().messages().trash(
+                userId="me",
+                id=message_id
+            ).execute()
+            logger.info(f"Email {message_id} moved to Trash")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to trash email {message_id}", exc_info=True)
+            return False
+
+    def mark_as_read(self, message_id: str) -> bool:
+        """Mark an email as read (remove UNREAD label)."""
+        if not self.service:
+            logger.warning("Gmail service not available — cannot mark as read")
+            return False
+
+        try:
+            self.service.users().messages().modify(
+                userId="me",
+                id=message_id,
+                body={"removeLabelIds": ["UNREAD"]}
+            ).execute()
+            logger.info(f"Email {message_id} marked as read")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to mark email {message_id} as read", exc_info=True)
+            return False
+
+    def read_unread_emails(self, max_results=10):
+        if not self.service:
+            logger.warning("Gmail service not available — returning empty inbox")
+            return []
+
+        try:
+            results = self.service.users().messages().list(
+                userId="me",
+                q="is:unread label:inbox",
+                maxResults=max_results
+            ).execute()
+
+            messages = results.get("messages", [])
+            logger.info(f"Found {len(messages)} unread inbox messages")
+
+            output = []
+
+            for msg in messages:
+                msg_data = self.get_message(msg["id"])
+                if not msg_data:
+                    continue
+
+                headers = msg_data.get("payload", {}).get("headers", [])
+
+                subject = next(
+                    (h["value"] for h in headers if h["name"].lower() == "subject"),
+                    "No subject"
+                )
+
+                sender = next(
+                    (h["value"] for h in headers if h["name"].lower() == "from"),
+                    "Unknown"
+                )
+
+                output.append({
+                    "id": msg["id"],
+                    "subject": subject,
+                    "from": sender,
+                    "snippet": msg_data.get("snippet", "")
+                })
+
+            return output
+
+        except Exception as e:
+            logger.error("Failed to read unread emails", exc_info=True)
+            return []
+
+    def send_email(self, to_email, subject, body):
+        if not self.service:
+            logger.warning("Gmail service not available — cannot send email")
+            return False
+
+        try:
+            msg = MIMEText(body)
+            msg["to"] = to_email
+            msg["subject"] = subject
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+
+            self.service.users().messages().send(
+                userId="me",
+                body={"raw": raw}
+            ).execute()
+
+            logger.info(f"Email sent successfully to {to_email}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to send email to {to_email}", exc_info=True)
+            return False-e 
+=======================================
+
+FILE: ./services/email/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./services/auth/google_auth.py
+---------------------------------------
+import os
+import pathlib
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2.credentials import Credentials
+
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar"
+]
+
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+CREDENTIAL_PATH = BASE_DIR / "secrets/credentials.json"
+TOKEN_PATH = BASE_DIR / "secrets/token.json"
+
+
+def get_flow():
+    return InstalledAppFlow.from_client_secrets_file(
+        str(CREDENTIAL_PATH),
+        SCOPES
+    )
+
+
+def authenticate():
+    """Run once to generate token.json"""
+    flow = get_flow()
+
+    creds = flow.run_local_server(
+        port=0,
+        prompt="consent"
+    )
+
+    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(TOKEN_PATH, "w") as f:
+        f.write(creds.to_json())
+
+    return creds
+
+
+def load_credentials():
+    """Load existing credentials or re-auth"""
+    if TOKEN_PATH.exists():
+        return Credentials.from_authorized_user_file(
+            str(TOKEN_PATH),
+            SCOPES
+        )
+
+    return authenticate()-e 
+=======================================
+
+FILE: ./services/ai/ai_service.py
+---------------------------------------
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from backend.brain.engine import BrainEngine
+from backend.services.email.email_service import EmailService
+
+router = APIRouter()
+
+brain = BrainEngine()
+email_service = EmailService()
+
+
+# -----------------------------
+# Request Model
+# -----------------------------
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+# -----------------------------
+# AI Chat Endpoint
+# -----------------------------
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+
+    result = await brain.think(request.message)
+
+    return {
+        "input": request.message,
+        "brain_result": result
+    }
+
+
+# -----------------------------
+# Email Reply Endpoint
+# -----------------------------
+
+class EmailRequest(BaseModel):
+    to_email: str
+    message: str
+
+
+@router.post("/email/reply")
+async def email_reply(request: EmailRequest):
+
+    try:
+
+        response = await brain.think(request.message)
+
+        subject = "AI Reply"
+        body = f"""
+AI Generated Reply
+
+{response}
+
+Best regards
+AI Copilot
+"""
+
+        email_service.send_email(
+            request.to_email,
+            subject,
+            body
+        )
+
+        return {"status": "email_sent"}
+
+    except Exception as e:
+
+        return {"error": str(e)}-e 
+=======================================
+
+FILE: ./services/ai/ai_brain_service.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./services/payment/stripe_service.py
+---------------------------------------
+import stripe
+from backend.config.settings import settings
+
+stripe.api_key = settings.stripe_secret_key.get_secret_value()
+
+class StripeService:
+    def charge_saved_card(self, customer_id: str, amount: float, description: str):
+        """AI triggers this after you say 'Correct'"""
+        try:
+            # In a real app, you'd retrieve the customer's default payment method
+            payment_intent = stripe.PaymentIntent.create(
+                amount=int(amount * 100),
+                currency="usd",
+                customer=customer_id,
+                payment_method="pm_card_visa", # In sandbox, this represents a saved Visa
+                off_session=True, # Tells Stripe you aren't actively on a website
+                confirm=True,
+                description=description
+            )
+            return {"status": "success", "id": payment_intent.id}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+-e 
+=======================================
+
+FILE: ./services/payment/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./services/messaging/reply_engine.py
+---------------------------------------
+from backend.config.settings import settings
+from openai import OpenAI
+
+class ReplyEngine:
+    def __init__(self):
+        # Use your central settings
+        self.client = OpenAI(
+            api_key=settings.openai_api_key.get_secret_value()
+        )
+
+    async def generate_reply(self, incoming_text, context="sms"):
+        # Tell the AI to keep it short if it's a text
+        style = "concise SMS reply" if context == "sms" else "professional email"
+        
+        prompt = f"You are a helpful AI assistant. Write a {style} for: {incoming_text}"
+
+        response = self.client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+-e 
+=======================================
+
+FILE: ./services/messaging/twilio_service.py
+---------------------------------------
+from twilio.rest import Client
+from backend.config.settings import TWILIO_SID, TWILIO_TOKEN, TWILIO_PHONE
+
+client = Client(TWILIO_SID, TWILIO_TOKEN)
+
+def send_sms(to_number: str, message: str):
+    return client.messages.create(
+        body=message,
+        from_=TWILIO_PHONE,
+        to=to_number
+    )-e 
+=======================================
+
+FILE: ./services/calendar/calendar_service.py
+---------------------------------------
+# backend/services/calendar/calendar_service.py
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from datetime import datetime, timezone
+from dateutil import parser  # for flexible date parsing
+
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+
+class CalendarService:
+    def __init__(self, creds: Credentials = None):
+        self.service = None
+
+        if creds:
+            self.service = build("calendar", "v3", credentials=creds)
+            logger.success("Google Calendar API initialized")
+        else:
+            logger.warning("No credentials provided — Calendar disabled")
+
+    def list_upcoming_events(self, max_results: int = 10, time_min: str | None = None):
+        """
+        List upcoming events from primary calendar.
+        time_min: ISO string (UTC), defaults to now.
+        """
+        if not self.service:
+            logger.warning("Calendar service not initialized")
+            return []
+
+        try:
+            now = time_min or datetime.now(timezone.utc).isoformat()
+            events_result = self.service.events().list(
+                calendarId='primary',
+                timeMin=now,
+                maxResults=max_results,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            events = events_result.get('items', [])
+            logger.info(f"Found {len(events)} upcoming calendar events")
+
+            formatted = []
+            for event in events:
+                start = event['start'].get('dateTime', event['start'].get('date'))
+                end = event['end'].get('dateTime', event['end'].get('date'))
+                formatted.append({
+                    "summary": event.get('summary', 'No title'),
+                    "start": start,
+                    "end": end,
+                    "description": event.get('description', ''),
+                    "location": event.get('location', ''),
+                    "id": event['id']
+                })
+
+            return formatted
+
+        except Exception as e:
+            logger.error(
+                f"Failed to list calendar events: {type(e).__name__} - {str(e)}",
+                exc_info=True
+            )
+            return []
+
+    def create_event(
+        self,
+        summary: str,
+        start_time: str,
+        end_time: str,
+        description: str = "",
+        location: str = "",
+        timezone: str = "America/Toronto"
+    ):
+        """Create a new event in primary calendar."""
+        if not self.service:
+            logger.warning("Calendar service not available — cannot create event")
+            return {"error": "Calendar not initialized"}
+
+        try:
+            # Parse flexible input times
+            start_dt = parser.parse(start_time).isoformat()
+            end_dt = parser.parse(end_time).isoformat()
+
+            event = {
+                'summary': summary,
+                'location': location,
+                'description': description,
+                'start': {'dateTime': start_dt, 'timeZone': timezone},
+                'end': {'dateTime': end_dt, 'timeZone': timezone},
+            }
+
+            created = self.service.events().insert(
+                calendarId='primary',
+                body=event
+            ).execute()
+
+            logger.success(f"Created calendar event: {summary} (ID: {created.get('id')})")
+            return {
+                "success": True,
+                "event_id": created.get('id'),
+                "link": created.get('htmlLink')
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to create calendar event: {type(e).__name__} - {str(e)}", exc_info=True)
+            return {"error": str(e)}-e 
+=======================================
+
+FILE: ./services/finance/polygon_service.py
+---------------------------------------
+import os
+import requests
+
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
+
+def get_stock_price(symbol):
+
+    url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/prev"
+
+    params = {
+        "apiKey": POLYGON_API_KEY
+    }
+
+    r = requests.get(url, params=params)
+
+    return r.json()-e 
+=======================================
+
+FILE: ./services/finance/plaid_service.py
+---------------------------------------
+from plaid.api import plaid_api
+from plaid.configuration import Configuration
+from plaid.api_client import ApiClient
+
+from backend.config.settings import (
+    PLAID_CLIENT_ID,
+    PLAID_SECRET,
+    PLAID_ENV
+)
+
+configuration = Configuration(
+    host=f"https://{PLAID_ENV}.plaid.com"
+)
+
+client = plaid_api.PlaidApi(ApiClient(configuration))
+
+def get_balance(access_token):
+    request = {
+        "access_token": access_token
+    }
+    return client.accounts_balance_get(request)-e 
+=======================================
+
+FILE: ./services/finance/stripe_service.py
+---------------------------------------
+import stripe
+from backend.config.settings import settings
+
+class StripeService:
+    def __init__(self):
+        # This pulls your sk_test_... from the .env
+        self.api_key = settings.stripe_secret_key.get_secret_value()
+        stripe.api_key = self.api_key
+
+    def create_checkout_session(self, item_name: str, amount: float):
+        """Generates a test payment link."""
+        try:
+            session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency': 'usd',
+                        'product_data': {'name': item_name},
+                        'unit_amount': int(amount * 100),  # Stripe uses cents
+                    },
+                    'quantity': 1,
+                }],
+                mode='payment',
+                success_url="https://example.com",
+                cancel_url="https://example.com",
+            )
+            return session.url
+        except Exception as e:
+            return f"Stripe Error: {str(e)}"
+-e 
+=======================================
+
+FILE: ./services/finance/ibkr_service.py
+---------------------------------------
+from ib_insync import IB
+
+ib = IB()
+
+def connect_ibkr(host="127.0.0.1", port=7497, client_id=1):
+    return ib.connect(host, port, clientId=client_id)
+
+def get_portfolio():
+    if not ib.isConnected():
+        connect_ibkr()
+
+    return ib.portfolio()-e 
+=======================================
+
+FILE: ./services/shopping/shopping_agent.py
+---------------------------------------
+from playwright.sync_api import sync_playwright
+
+
+class ShoppingAgent:
+
+    def search_product(self, query):
+
+        with sync_playwright() as p:
+
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+
+            page.goto("https://www.amazon.com")
+
+            page.fill("#twotabsearchtextbox", query)
+            page.press("#twotabsearchtextbox", "Enter")
+
+            page.wait_for_timeout(3000)
+
+            products = []
+
+            results = page.query_selector_all(
+                "[data-component-type='s-search-result'] h2"
+            )
+
+            for r in results[:5]:
+                products.append(r.inner_text())
+
+            browser.close()
+
+            return products-e 
+=======================================
+
+FILE: ./services/google/google_auth.py
+---------------------------------------
+# backend/services/google/google_auth.py
+import os
+import pickle
+from urllib.parse import urlparse, parse_qs
+
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+
+class GoogleAuth:
+    """
+    Singleton that handles OAuth for all Google services (Gmail, Calendar, etc.).
+    Loads/refreshs/saves token once — everyone else just asks for .credentials
+    """
+    _instance = None
+    _creds = None
+
+    SCOPES = [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/calendar.events",  # add more scopes later if needed
+    ]
+
+    TOKEN_FILE = os.path.join(settings.secrets_dir, "google_token.pickle")
+    CLIENT_SECRETS_FILE = os.path.join(settings.secrets_dir, "credentials.json")
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(GoogleAuth, cls).__new__(cls)
+            cls._instance._load_or_authenticate()
+        return cls._instance
+
+    def _load_or_authenticate(self):
+        creds = None
+
+        if os.path.exists(self.TOKEN_FILE):
+            try:
+                with open(self.TOKEN_FILE, "rb") as f:
+                    creds = pickle.load(f)
+                logger.debug("Loaded existing Google OAuth token")
+            except Exception as e:
+                logger.warning("Failed to load Google token", exc_info=True)
+
+        if creds and creds.valid:
+            self._creds = creds
+            logger.debug("Google credentials are valid")
+            return
+
+        # Try refresh
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                logger.info("Google token refreshed successfully")
+                with open(self.TOKEN_FILE, "wb") as f:
+                    pickle.dump(creds, f)
+                self._creds = creds
+                return
+            except Exception as e:
+                logger.warning("Google token refresh failed — will re-auth", exc_info=True)
+
+        # Full OAuth flow (first time / no refresh token / refresh failed)
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                self.CLIENT_SECRETS_FILE,
+                scopes=self.SCOPES
+            )
+            flow.redirect_uri = "http://127.0.0.1"
+
+            auth_url, _ = flow.authorization_url(
+                access_type="offline",
+                prompt="consent"
+            )
+
+            logger.info("Google OAuth required — please authorize in browser")
+            print("\n=== Authorize Google access ===")
+            print("Open this URL in your browser:")
+            print(auth_url)
+            print("\nAfter approving, paste the FULL redirect URL here (it starts with http://127.0.0.1...)")
+
+            auth_response = input("Redirect URL: ").strip()
+
+            parsed = urlparse(auth_response)
+            code = parse_qs(parsed.query).get("code")
+            if not code:
+                logger.error("No 'code' found in redirect URL")
+                raise ValueError("Invalid redirect URL — missing code parameter")
+
+            flow.fetch_token(code=code[0])
+            creds = flow.credentials
+
+            with open(self.TOKEN_FILE, "wb") as f:
+                pickle.dump(creds, f)
+
+            logger.success("Google OAuth completed — token saved")
+            self._creds = creds
+
+        except Exception as e:
+            logger.critical("Google OAuth flow failed completely", exc_info=True)
+            self._creds = None
+
+    @property
+    def credentials(self) -> Credentials | None:
+        """Public access to current credentials."""
+        return self._creds
+
+    def is_authenticated(self) -> bool:
+        return bool(self._creds and self._creds.valid)-e 
+=======================================
+
+FILE: ./services/notifications/twilio_service.py
+---------------------------------------
+import os
+from twilio.rest import Client
+
+
+class TwilioService:
+
+    def __init__(self):
+
+        self.account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        self.twilio_number = os.getenv("TWILIO_NUMBER_PRIMARY")
+        self.owner_number = os.getenv("OWNER_NUMBER")
+
+        self.client = Client(self.account_sid, self.auth_token)
+
+    def send_sms(self, message):
+
+        if not self.owner_number:
+            return
+
+        self.client.messages.create(
+            body=message,
+            from_=self.twilio_number,
+            to=self.owner_number
+        )-e 
+=======================================
+
+FILE: ./services/awareness/world_awareness.py
+---------------------------------------
+import requests
+
+class WorldAwareness:
+
+    def get_weather(self, city="Toronto"):
+
+        try:
+            res = requests.get(
+                f"https://wttr.in/{city}?format=j1",
+                timeout=5
+            )
+
+            data = res.json()
+            return data["current_condition"][0]
+
+        except:
+            return None
+-e 
+=======================================
+
+FILE: ./services/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./services/food/food_order_agent.py
+---------------------------------------
+import requests
+import os
+from backend.config.settings import settings
+
+class FoodOrderAgent:
+    def __init__(self):
+        # Using the sandbox key you provided
+        self.api_key = "3dxCNw4SZkAoRu2wcVmThxxpwzYwSwJq" 
+        self.base_url = "https://api.orderout.co/api"
+
+    def find_restaurants(self, query="pizza"):
+        """Search for restaurants in the OrderOut Sandbox."""
+        url = f"{self.base_url}/pos/account/restaurants"
+        headers = {
+            "accept": "application/json",
+            "api-key": self.api_key 
+        }
+        try:
+            response = requests.get(url, headers=headers)
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def get_test_quote(self, order_details: str):
+        """Mock a price for the sandbox test."""
+        return {
+            "item": order_details,
+            "total_price": 22.50,
+            "currency": "usd"
+        }
+
+    async def process_order(self, query: str):
+        # 1. Search for actual restaurants in the Sandbox
+        search_results = self.find_restaurants(query)
+        
+        # 2. Pick the first restaurant or use a fallback
+        if isinstance(search_results, list) and len(search_results) > 0:
+            restaurant = search_results[0]
+            name = restaurant.get("name", "Local Pizza Shop")
+            eta = "35-45 minutes" 
+        else:
+            name = "Pizza Palace (Sandbox)"
+            eta = "30 minutes"
+
+        # 3. Get the quote/price
+        quote = await self.get_test_quote(query)
+        
+        return {
+            "restaurant_name": name,
+            "eta": eta,
+            "total_price": quote["total_price"]
+        }
+-e 
+=======================================
+
+FILE: ./services/food/food_order_agent_copy.py
+---------------------------------------
+import requests
+from backend.config.settings import settings
+
+class FoodOrderAgent:
+    def __init__(self):
+        # Use your central settings to get the key
+        self.api_key = os.getenv("ORDEROUT_API_KEY")
+        self.base_url = "https://api.orderout.co/api"
+
+    def find_restaurants(self, query="pizza"):
+        """Search for restaurants using the OrderOut POS API."""
+        if not self.api_key:
+            return {"error": "Missing ORDEROUT_API_KEY"}
+
+        # Correct OrderOut endpoint for listing restaurants
+        url = f"{self.base_url}/pos/account/restaurants"
+        
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {self.api_key}" # Standard Bearer token
+        }
+
+        try:
+            # OrderOut typically uses standard GET for lists
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            return {"error": f"OrderOut Search Failed: {str(e)}"}
+
+    async def get_test_quote(self, order_details: str):
+        """
+        Mock a quote for your test. 
+        In production, this would call /delivery/quotes
+        """
+        # Simulated price for your cheese and grilled chicken pizza test
+        return {
+            "item": order_details,
+            "total_price": 22.50,
+            "currency": "usd"
+        }
+-e 
+=======================================
+
+FILE: ./memory/persistent_memory.py
+---------------------------------------
+import os
+import json
+from datetime import datetime, timezone
+from typing import List, Dict, Optional, Any
+
+from sqlalchemy import Column, Integer, Text, DateTime, select
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base
+from backend.utils.logger import logger
+
+# 1. Async Setup
+DB_DIR = os.path.expanduser("~/ai-copilot/backend/secrets")
+os.makedirs(DB_DIR, exist_ok=True)
+
+# Use 'sqlite+aiosqlite' for asynchronous support
+DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(DB_DIR, 'ai_memory.db')}"
+
+engine = create_async_engine(DATABASE_URL, echo=False)
+AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+Base = declarative_base()
+
+class MemoryTable(Base):
+    __tablename__ = "memory"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    input = Column(Text, nullable=False)
+    output = Column(Text, nullable=False)
+    context = Column(Text, nullable=True)
+    # Use standard UTC for storage
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+class PersistentMemoryStore:
+    """Async persistent memory store for non-blocking AI operations."""
+
+    async def init_db(self):
+        """Run this once at startup to create tables."""
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    # --- CRITICAL FIX: Method Alias ---
+    async def update_entity(self, key: str, value: Any) -> bool:
+        """
+        Alias for save_entity to match MasterBrain expectations.
+        Called when the Brain learns a new specific fact.
+        """
+        return await self.save_entity(key, value)
+
+    async def save_entity(self, key: str, value: Any) -> bool:
+        """
+        Saves a structured 'Fact' about the user.
+        Useful for long-term preferences (e.g., 'pref_pizza': 'pepperoni').
+        """
+        async with AsyncSessionLocal() as db:
+            try:
+                # We store entities as log entries with a special prefix.
+                # get_entity() fetches the latest one.
+                entry = MemoryTable(
+                    input=f"ENTITY_UPDATE:{key}",
+                    output=json.dumps(value),
+                    context="STRUCTURAL_MEMORY"
+                )
+                db.add(entry)
+                await db.commit()
+                return True
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Entity Save Error: {e}")
+                return False
+
+    async def get_entity(self, key: str) -> Optional[Any]:
+        """Directly retrieve a specific fact by key."""
+        async with AsyncSessionLocal() as db:
+            stmt = select(MemoryTable).where(
+                MemoryTable.input == f"ENTITY_UPDATE:{key}"
+            ).order_by(MemoryTable.created_at.desc()).limit(1)
+            
+            result = await db.execute(stmt)
+            row = result.scalar_one_or_none()
+            
+            if row:
+                try:
+                    return json.loads(row.output)
+                except json.JSONDecodeError:
+                    return row.output
+            return None
+
+    async def save(self, input_text: str, output_text: str, context: Optional[Any] = None) -> bool:
+        """Saves a standard conversation turn."""
+        async with AsyncSessionLocal() as db:
+            try:
+                context_str = json.dumps(context) if context else None
+                entry = MemoryTable(input=input_text, output=output_text, context=context_str)
+                db.add(entry)
+                await db.commit()
+                return True
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Conversation Save Error: {e}")
+                return False
+
+    async def search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Keyword search across conversation history."""
+        async with AsyncSessionLocal() as db:
+            pattern = f"%{keyword}%"
+            stmt = select(MemoryTable).where(
+                (MemoryTable.input.ilike(pattern)) | (MemoryTable.output.ilike(pattern))
+            ).order_by(MemoryTable.created_at.desc()).limit(limit)
+            
+            result = await db.execute(stmt)
+            return [self._to_dict(r) for r in result.scalars().all()]
+
+     # Fixed indentation and ensured no leading invisible characters
+    async def recall_recent(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Recalls the most recent chat turns."""
+        async with AsyncSessionLocal() as db:
+            # We filter by user_id if you implement a user_id column in MemoryTable later
+            # For now, it pulls the global most recent history
+            stmt = select(MemoryTable).order_by(MemoryTable.created_at.desc()).limit(limit)
+            result = await db.execute(stmt)
+            rows = result.scalars().all()
+            return [self._to_dict(r) for r in rows]
+
+    def _to_dict(self, row) -> Dict[str, Any]:
+        return {
+            "input": row.input,
+            "output": row.output,
+            "context": row.context,
+            "created_at": row.created_at.isoformat()
+        }
+-e 
+=======================================
+
+FILE: ./memory/memory_store.py
+---------------------------------------
+import datetime
+
+
+class MemoryStore:
+
+    def __init__(self):
+        self._memory = []
+        self._interaction_times = []
+
+    def retrieve_context(self):
+        return self._memory[-10:]
+
+    def learn(self, message, response):
+
+        self._memory.append({
+            "input": message,
+            "output": response,
+            "timestamp": datetime.datetime.now()
+        })
+
+        self._interaction_times.append(
+            datetime.datetime.now().hour
+        )
+
+    def predict_user_activity_pattern(self):
+
+        if not self._interaction_times:
+            return "unknown"
+
+        from collections import Counter
+
+        common_hour = Counter(
+            self._interaction_times
+        ).most_common(1)[0][0]
+
+        return f"User usually interacts around {common_hour}:00"-e 
+=======================================
+
+FILE: ./memory/semantic_memory.py
+---------------------------------------
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+class SemanticMemory:
+
+    _model = None   # Shared across all instances
+
+    def __init__(self):
+        self.vectors = []
+        self.texts = []
+
+    def _get_model(self):
+        """
+        Load model ONLY when first needed
+        """
+        if SemanticMemory._model is None:
+            print("Loading SentenceTransformer model...")
+            SemanticMemory._model = SentenceTransformer(
+                "all-MiniLM-L6-v2",
+                cache_folder="./backend/secrets/models"
+            )
+
+        return SemanticMemory._model
+
+    def store(self, text: str):
+        model = self._get_model()
+        vec = model.encode(text)
+
+        self.vectors.append(vec)
+        self.texts.append(text)
+
+    def search(self, query: str):
+
+        if not self.vectors:
+            return None
+
+        model = self._get_model()
+        query_vec = model.encode(query)
+
+        sims = [
+            np.dot(query_vec, v) /
+            (np.linalg.norm(query_vec) * np.linalg.norm(v))
+            for v in self.vectors
+        ]
+
+        return self.texts[int(np.argmax(sims))]-e 
+=======================================
+
+FILE: ./memory/vector_memory.py
+---------------------------------------
+import faiss
+import numpy as np
+import asyncio
+from datetime import datetime
+from openai import AsyncOpenAI
+from backend.config.settings import settings
+from backend.utils.logger import logger
+
+class VectorMemory:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+        self.dimension = 1536  # Standard for text-embedding-3-small
+        self.index = faiss.IndexFlatL2(self.dimension)
+        self.metadata = []  # Stores the actual text strings
+
+    async def add_documents(self, texts: list[str]):
+        """Embeds text and adds it to the FAISS index."""
+        if not texts or not isinstance(texts, list):
+            return
+            
+        try:
+            response = await self.client.embeddings.create(
+                input=texts, 
+                model="text-embedding-3-small"
+            )
+            vectors = np.array([d.embedding for d in response.data]).astype('float32')
+            
+            self.index.add(vectors)
+            self.metadata.extend(texts)
+            return True
+        except Exception as e:
+            logger.error(f"Error adding to Vector Memory: {e}")
+            return False
+    
+    async def add_interaction(self, query: str, answer: str):
+        """
+        Chunks the interaction and adds it to the vector store using the existing add_documents flow.
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+            # We format as a single string to keep your metadata list consistent (strings only)
+            text_to_embed = f"[{timestamp}] User: {query} | Assistant: {answer}"
+            
+            # Use the internal method to handle embedding and FAISS indexing
+            return await self.add_documents([text_to_embed])
+        except Exception as e:
+            logger.error(f"Vector interaction storage error: {e}")
+            return False
+
+    async def search(self, query: str, limit: int = 3) -> list[str]:
+        """Searches long-term memory for relevant context."""
+        if self.index.ntotal == 0:
+            return []
+
+        try:
+            resp = await self.client.embeddings.create(
+                input=[query], 
+                model="text-embedding-3-small"
+            )
+            
+            query_vector = np.array([resp.data[0].embedding]).astype('float32')
+            _, indices = self.index.search(query_vector, limit)
+            
+            results = []
+            for i in indices[0]:
+                if i != -1 and i < len(self.metadata):
+                    results.append(self.metadata[i])
+            
+            return results
+        except Exception as e:
+            logger.error(f"Vector Search Error: {e}")
+            return []
+
+    def clear(self):
+        """Reset memory index."""
+        self.index = faiss.IndexFlatL2(self.dimension)
+        self.metadata = []
+-e 
+=======================================
+
+FILE: ./memory/behavior_memory.py
+---------------------------------------
+
+import datetime
+from collections import Counter
+
+
+class BehaviorMemory:
+
+    def init(self):
+        self.actions = []
+
+    def record_action(self, action_name):
+
+        self.actions.append(
+            datetime.datetime.now().strftime("%H")
+        )
+
+    def predict_active_hour(self):
+
+        if not self.actions:
+            return None
+
+        hour = Counter(self.actions).most_common(1)[0][0]
+
+        return f"User usually active around {hour}:00"
+
+-e 
+=======================================
+
+FILE: ./memory/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./main.py
+---------------------------------------
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+# Load .env with absolute path
+env_path = os.path.join(os.path.dirname(__file__), "secrets", ".env")
+loaded = load_dotenv(env_path)
+
+logger.info(f"Starting AI Companion API v1.0 - .env loaded: {loaded}")
+
+app = FastAPI(
+    title="AI Companion",
+    version="1.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=True
+)
+
+# --- ROUTE REGISTRATION ---
+try:
+    # 1. AI routes
+    from backend.services.ai.ai_service import router as ai_router
+    app.include_router(ai_router, prefix="/ai", tags=["AI"])
+    logger.debug("[MAIN] AI routes included")
+
+    # 2. Email routes
+    from backend.api.email_routes import router as email_router
+    app.include_router(email_router, prefix="/email", tags=["Email"])
+    logger.debug("[MAIN] Email routes included")
+
+    # 3. SMS routes (Webhook is registered here at /sms/webhook)
+    # Note: We use the full backend path to avoid "No module named tools" errors
+    from backend.api.sms_routes import router as sms_router
+    app.include_router(sms_router, prefix="/sms", tags=["SMS"])
+    logger.info("[MAIN] SMS routes included – webhook live at /sms/webhook")
+
+    logger.info("All routes loaded successfully: /ai, /email, /sms")
+
+except ImportError as ie:
+    logger.error(f"IMPORT ERROR during route loading: {ie}")
+    logger.error("Check backend/api/sms_routes.py and backend/tools/ for internal imports without 'backend.' prefix")
+except Exception as e:
+    logger.error(f"GENERAL ROUTE LOAD ERROR: {e}")
+
+@app.get("/")
+def root():
+    return {"status": "online", "service": "AI Companion Core"}
+-e 
+=======================================
+
+FILE: ./brain/cognition.py
+---------------------------------------
+import random
+
+
+class CognitionBrain:
+
+    async def think(self, message: str):
+
+        emotional_weight = random.uniform(0.5, 1.0)
+        reasoning_weight = random.uniform(0.5, 1.0)
+
+        score = (emotional_weight + reasoning_weight) / 2
+
+        if score > 0.75:
+            return "provide helpful supportive response"
+
+        return "ask user for clarification"-e 
+=======================================
+
+FILE: ./brain/intent_classifier.py
+---------------------------------------
+# backend/brain/intent_classifier.py
+from openai import AsyncOpenAI
+from backend.config.settings import settings
+import json
+
+class IntentClassifier:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def classify(self, message: str, context: dict = None) -> dict:
+        prompt = f"""
+Classify this user message: "{message}"
+
+Possible intents (pick ONE):
+- conversation: casual chat, greetings, questions about self
+- weather: weather, temperature, forecast, "is it raining", "what's the weather"
+- order_food: food, restaurant, order, pizza, delivery
+- calendar_event: schedule, meeting, add event, calendar
+- other: anything else
+
+Return ONLY JSON:
+{{
+  "intent": "one_of_the_above",
+  "confidence": 0.0_to_1.0,
+  "reason": "one sentence why"
+}}
+"""
+        try:
+            resp = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=150,
+                response_format={"type": "json_object"}
+            )
+            return json.loads(resp.choices[0].message.content.strip())
+        except Exception:
+            return {"intent": "conversation", "confidence": 0.5, "reason": "fallback"}
+-e 
+=======================================
+
+FILE: ./brain/email_cognition.py
+---------------------------------------
+
+class EmailCognition:
+
+    def analyze(self, email_text):
+
+        if "invoice" in email_text.lower():
+            return "finance"
+
+        if "meeting" in email_text.lower():
+            return "calendar"
+
+        if "urgent" in email_text.lower():
+            return "high_priority"
+
+        return "general"
+-e 
+=======================================
+
+FILE: ./brain/learning.py
+---------------------------------------
+class BehaviorLearner:
+
+    def __init__(self):
+        self.preferences = {}
+
+    def learn(self, key, value):
+
+        if key not in self.preferences:
+            self.preferences[key] = []
+
+        self.preferences[key].append(value)
+
+    def predict(self, key):
+
+        if key not in self.preferences:
+            return None
+
+        return max(
+            set(self.preferences[key]),
+            key=self.preferences[key].count
+        )
+-e 
+=======================================
+
+FILE: ./brain/multi_agent_core.py
+---------------------------------------
+class MultiAgentCore:
+
+    def __init__(self):
+        self.agents = {}
+
+    def register_agent(self, name, agent):
+        self.agents[name] = agent
+
+    async def run(self, context):
+
+        results = {}
+
+        for name, agent in self.agents.items():
+            try:
+                results[name] = await agent.act(context)
+            except:
+                results[name] = None
+
+        return results
+-e 
+=======================================
+
+FILE: ./brain/emotional_model.py
+---------------------------------------
+# backend/brain/emotional_model.py
+from datetime import datetime
+
+class EmotionalModel:
+    def __init__(self):
+        # 0.0 to 1.0 scale
+        self.mood_score = 0.5 
+        self.energy_level = 0.5
+        self.last_update = datetime.now()
+
+    def update(self, user_input: str, context: dict) -> str:
+        """
+        Analyzes input and context to drift the AI's internal state.
+        Returns a string description of the current emotion.
+        """
+        # 1. Detect Sentiment (Simplified Keyword Drift)
+        text = user_input.lower()
+        positive_words = ['thanks', 'great', 'awesome', 'good', 'love', 'help']
+        negative_words = ['bad', 'wrong', 'error', 'stop', 'hate', 'slow']
+        
+        drift = 0.0
+        if any(word in text for word in positive_words):
+            drift += 0.1
+        if any(word in text for word in negative_words):
+            drift -= 0.15
+
+        # 2. Apply Drift with Momentum
+        self.mood_score = max(0.0, min(1.0, self.mood_score * 0.9 + (0.5 + drift) * 0.1))
+        
+        # 3. Time-of-day Energy Logic
+        hour = datetime.now().hour
+        if 6 <= hour <= 10:
+            self.energy_level = 0.8  # Morning boost
+        elif hour >= 22:
+            self.energy_level = 0.3  # Late night low energy
+        else:
+            self.energy_level = 0.6
+
+        return self.get_state()
+
+    def get_state(self) -> str:
+        """Translates scores into a descriptive tone for the Reasoner."""
+        if self.mood_score > 0.75:
+            return "enthusiastic and helpful"
+        if self.mood_score < 0.3:
+            return "empathetic and apologetic"
+        
+        if self.energy_level > 0.7:
+            return "high-energy and efficient"
+        if self.energy_level < 0.4:
+            return "calm and concise"
+            
+        return "warm and professional"
+-e 
+=======================================
+
+FILE: ./brain/reflection.py
+---------------------------------------
+# backend/brain/reflection.py
+import asyncio
+import json
+import logging
+from typing import List, Dict, Any, Optional
+
+from openai import AsyncOpenAI
+from backend.config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+
+class ReflectionModule:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def analyze(
+        self,
+        execution_results: List[Dict],
+        intent: str,
+        original_query: str,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Post-execution reflection: Assess if the tools solved the query.
+        Returns whether complete + specific feedback for planner.
+        """
+        if not execution_results:
+            return {"complete": True, "feedback": "No tools executed — direct reasoning sufficient."}
+
+        # Build rich context for judgment
+        results_summary = self._summarize_results(execution_results)
+        prefs = json.dumps(context.get("persistent", {}), indent=2)
+        calendar = self._summarize_calendar(context.get("calendar", []))
+
+        prompt = f"""
+You are a strict quality control auditor for an AI assistant.
+
+Original user query: "{original_query}"
+Intent: {intent}
+User preferences/facts: {prefs}
+Calendar: {calendar or 'None'}
+
+Execution results:
+{results_summary}
+
+Evaluate:
+1. Did tools return meaningful, error-free data?
+2. Is there enough information to fully answer the query?
+3. If order_food → did it return real options (not just quotes)?
+4. If web_search → did it provide relevant, up-to-date facts?
+5. If incomplete: What specific next step or info is missing?
+
+Respond ONLY with JSON:
+{{
+  "complete": true/false,
+  "feedback": "Short, actionable instruction for planner (e.g. 'Need better restaurant options' or 'Search again with different query')",
+  "suggested_adjustment": "optional new tool or step if needed"
+}}
+"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,  # Low variance for reliable judgment
+                max_tokens=300,
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(response.choices[0].message.content.strip())
+            return result
+
+        except Exception as e:
+            logger.error(f"Reflection failed: {e}", exc_info=True)
+            return {"complete": True, "feedback": "Reflection error — proceeding to synthesis."}
+
+    async def extract_knowledge(
+        self,
+        query: str,
+        output: str,
+        tool_results: List[Dict],
+        user_id: str = "default"
+    ) -> List[Dict[str, str]]:
+        """
+        Extract new facts/preferences from interaction for long-term memory.
+        Returns list of {"key": "...", "value": "...", "confidence": 0.0-1.0}
+        """
+        results_summary = self._summarize_results(tool_results)
+
+        prompt = f"""
+From this interaction, extract any new, memorable facts about the user.
+
+Query: "{query}"
+AI response: "{output}"
+Tool results: {results_summary}
+
+Examples of facts to extract:
+- Name changes ("call me Alex" → name: Alex)
+- Preferences ("I love spicy food" → favorite_food: spicy food)
+- Allergies, dislikes, locations, routines
+
+Only include facts with high confidence.
+Output JSON:
+{{
+  "facts": [
+    {{"key": "favorite_food", "value": "spicy food", "confidence": 0.9}},
+    ...
+  ]
+}}
+If nothing memorable, return empty array.
+"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=400,
+                response_format={"type": "json_object"}
+            )
+            data = json.loads(response.choices[0].message.content.strip())
+            return data.get("facts", [])
+
+        except Exception as e:
+            logger.error(f"Knowledge extraction failed: {e}")
+            return []
+
+    def _summarize_results(self, results: List[Dict]) -> str:
+        if not results:
+            return "No tool results."
+        summaries = []
+        for r in results:
+            tool = r.get("tool", "unknown")
+            res = r.get("result", {})
+            if isinstance(res, dict):
+                if "answer" in res:
+                    summaries.append(f"{tool}: {res['answer'][:200]}")
+                elif "results" in res:
+                    summaries.append(f"{tool}: {len(res['results'])} results found")
+                else:
+                    summaries.append(f"{tool}: {json.dumps(res)[:200]}")
+            else:
+                summaries.append(f"{tool}: {str(res)[:200]}")
+        return "\n".join(summaries)
+
+    def _summarize_calendar(self, events: List[Dict]) -> str:
+        if not events:
+            return "No upcoming events."
+        return "\n".join([f"- {e.get('summary')} at {e.get('start')}" for e in events[:3]])-e 
+=======================================
+
+FILE: ./brain/behavior_predictor.py
+---------------------------------------
+import datetime
+
+class BehaviorPredictor:
+
+    def predict_next_action(self, history):
+
+        hour = datetime.datetime.now().hour
+
+        if 6 <= hour <= 9:
+            return "morning_assistant_mode"
+
+        if 9 < hour < 17:
+            return "work_support_mode"
+
+        if 18 <= hour:
+            return "life_management_mode"
+
+        return "idle_mode"
+-e 
+=======================================
+
+FILE: ./brain/engine.py
+---------------------------------------
+from backend.brain.reasoning import ReasoningModule
+from backend.brain.decision_core import DecisionCore
+from backend.tools.tool_router import ToolRouter
+from backend.memory.memory_store import MemoryStore
+from backend.memory.semantic_memory import SemanticMemory
+
+class BrainEngine:
+
+    def __init__(self):
+        self.reasoner = ReasoningModule()
+        self.decision = DecisionCore()
+        self.tools = ToolRouter()
+        self.memory = MemoryStore()
+        self.semantic = SemanticMemory()
+
+    async def think(self, message):
+
+        # 1. Understand intent
+        intent = message.lower()
+
+        # 2. Reason
+        response = await self.reasoner.reason(message, None)
+
+        # 3. Decide action
+        decision = await self.decision.decide(intent, {})
+
+        # 4. Execute tools if needed
+        tool_result = None
+
+        if "action" in decision:
+            tool_result = self.tools.execute(decision["action"])
+
+        # 5. Learn
+        self.memory.learn(message, response)
+        self.semantic.store(message)
+
+        return {
+            "response": response,
+            "decision": decision,
+            "tools": tool_result
+        }
+-e 
+=======================================
+
+FILE: ./brain/agent_council.py
+---------------------------------------
+
+class AgentCouncil:
+
+    def init(self):
+        self.agents = []
+
+    def register(self, agent):
+        self.agents.append(agent)
+
+    async def deliberate(self, context):
+
+        votes = []
+
+        for agent in self.agents:
+            try:
+                if hasattr(agent, "act"):
+                    votes.append(await agent.act(context))
+            except Exception:
+                votes.append(None)
+
+        return votes
+
+-e 
+=======================================
+
+FILE: ./brain/reasoning.py
+---------------------------------------
+# backend/brain/reasoning.py
+import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
+
+from openai import OpenAI, AsyncOpenAI
+from backend.config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+class ReasoningModule:
+    def __init__(self):
+        # Async client for better performance in FastAPI/async contexts
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def synthesize(
+        self,
+        query: str,
+        tool_data: List[Dict[str, Any]],
+        memory: Dict[str, Any],
+        emotion: str = "neutral"
+    ) -> Any:
+        """
+        Final synthesis: merges query, tools, memory, emotion into a natural, structured reply.
+        """
+        # Prepare inputs
+        chat_history = self._format_chat_history(memory.get("short_term", []))
+        tool_context = self._format_tool_results(tool_data)
+        prefs = json.dumps(memory.get("persistent", {}), indent=2)
+        calendar_summary = self._summarize_calendar(memory.get("calendar", []))
+
+        system_prompt = self._build_system_prompt(
+            emotion=emotion,
+            prefs=prefs,
+            location=memory.get("location", "Toronto, Ontario, CA"),
+            current_time=memory.get("current_time", datetime.now(timezone.utc).isoformat()),
+            calendar=calendar_summary,
+            tool_results=tool_context
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            *chat_history,
+            {"role": "user", "content": query.strip()}
+        ]
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",  # or "gpt-4o-mini" for faster/cheaper
+                messages=messages,
+                temperature=0.65,  # tighter for consistency
+                max_tokens=1000,
+                top_p=0.92,
+                response_format={"type": "json_object"}
+            )
+
+            parsed = json.loads(response.choices[0].message.content.strip())
+
+            class FinalOutput:
+                def __init__(self, data: Dict):
+                    self.text = data.get("answer", "No response generated.")
+                    self.suggestions = data.get("suggestions", [])
+
+            return FinalOutput(parsed)
+
+        except json.JSONDecodeError:
+            logger.warning("LLM returned non-JSON — falling back to raw text")
+            raw = response.choices[0].message.content.strip()
+            return type('FallbackOutput', (), {'text': raw, 'suggestions': []})
+
+        except Exception as e:
+            logger.error(f"Synthesis failed: {e}", exc_info=True)
+            return type('ErrorOutput', (), {
+                'text': "I'm having trouble putting it all together right now — let's try again?",
+                'suggestions': []
+            })
+
+    def _build_system_prompt(
+        self,
+        emotion: str,
+        prefs: str,
+        location: str,
+        current_time: str,
+        calendar: str,
+        tool_results: str
+    ) -> str:
+        return f"""
+You are Calverton's personal AI assistant — warm, concise, capable, and always helpful.
+
+CURRENT CONTEXT:
+- Your emotional state / tone: {emotion}
+- User's location: {location}
+- Current time: {current_time}
+- Calendar highlights: {calendar or 'No upcoming events.'}
+- Known preferences & facts:
+{prefs if prefs.strip() != '{}' else 'None recorded yet — learn from conversation.'}
+
+RECENT CONVERSATION HISTORY (maintain continuity — reference naturally):
+{{history_placeholder}}
+
+TOOL RESULTS & REAL-TIME DATA (CRITICAL — prioritize these over internal knowledge):
+{tool_results if tool_results else 'No external tools used for this query.'}
+
+CORE RULES:
+1. If the query is about the user (name, favorites, preferences), ALWAYS check provided facts/history first.
+2. Use conversation history for continuity — never pretend you forgot something said earlier.
+3. Be concise for SMS (under 400 chars when possible), warm, and personalize with name/facts.
+4. Never say "I searched" or "according to tools" — just state facts confidently.
+5. Generate 2–4 short, proactive, context-aware suggestions for what the user might want next.
+6. Tone: friendly, professional, confident — use name occasionally when it feels natural.
+
+RESPONSE FORMAT (JSON ONLY — no other text):
+{{
+  "answer": "Your natural, human-like response here",
+  "suggestions": ["suggestion 1", "suggestion 2", "suggestion 3"]
+}}
+"""
+
+    def _format_tool_results(self, tool_data: List[Dict]) -> str:
+        if not tool_data:
+            return ""
+        formatted = []
+        for entry in tool_data:
+            tool = entry.get("tool", "unknown")
+            result = entry.get("result", {})
+            if isinstance(result, dict):
+                # Handle common tool outputs nicely
+                if "answer" in result or "summary" in result:
+                    content = result.get("answer") or result.get("summary") or str(result)
+                elif "results" in result:
+                    content = "\n".join([r.get("content", "")[:200] for r in result["results"][:3]])
+                else:
+                    content = json.dumps(result, indent=2)[:400]
+            else:
+                content = str(result)[:400]
+            formatted.append(f"[{tool.upper()} OUTPUT]\n{content}")
+        return "\n\n".join(formatted) or "No tool data."
+
+    def _format_chat_history(self, history: List[Any]) -> List[Dict[str, str]]:
+        messages = []
+        for entry in history[-10:]:
+            if isinstance(entry, dict) and "role" in entry:
+                messages.append({
+                    "role": entry["role"],
+                    "content": str(entry.get("content", ""))[:500]
+                })
+            else:
+                role = "user" if len(messages) % 2 == 0 else "assistant"
+                messages.append({"role": role, "content": str(entry)[:500]})
+        return messages
+
+    def _summarize_calendar(self, events: List[Dict]) -> str:
+        if not events:
+            return "No upcoming events."
+        summaries = []
+        for e in events[:3]:
+            start = e.get("start", "unknown")
+            summary = e.get("summary", "Event")
+            summaries.append(f"- {summary} at {start}")
+        return "\n".join(summaries)-e 
+=======================================
+
+FILE: ./brain/world_awareness.py
+---------------------------------------
+class WorldAwareness:
+
+    def score_relevance(self, news_item, user_context):
+
+        score = 0
+
+        if user_context.get("location") in news_item:
+            score += 0.4
+
+        if user_context.get("interests"):
+            for interest in user_context["interests"]:
+                if interest in news_item:
+                    score += 0.3
+
+        return min(score, 1.0)
+-e 
+=======================================
+
+FILE: ./brain/planner.py
+---------------------------------------
+# backend/brain/planner.py
+import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
+
+from openai import AsyncOpenAI
+from backend.config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+
+class PlanStep:
+    def __init__(
+        self,
+        tool: str,
+        args: Dict[str, Any],
+        description: str,
+        priority: int = 1,
+        depends_on: Optional[str] = None
+    ):
+        self.tool = tool
+        self.args = args
+        self.description = description
+        self.priority = priority
+        self.depends_on = depends_on
+        self.status = "pending"  # pending, completed, failed
+        self.result = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "tool": self.tool,
+            "args": self.args,
+            "description": self.description,
+            "priority": self.priority,
+            "depends_on": self.depends_on,
+            "status": self.status
+        }
+
+
+class Plan:
+    def __init__(self, steps: List[PlanStep]):
+        self.steps = sorted(steps, key=lambda s: s.priority)
+        self.current_index = 0
+
+    def get_next_step(self, completed_tools: List[str]) -> Optional[Dict]:
+        """Get next pending step that has no unmet dependencies."""
+        for step in self.steps:
+            if step.status == "pending":
+                if step.depends_on is None or step.depends_on in completed_tools:
+                    return step.to_dict()
+        return None
+
+    def update_step(self, tool_name: str, result: Any):
+        """Mark step as completed/failed and store result."""
+        for step in self.steps:
+            if step.tool == tool_name and step.status == "pending":
+                step.status = "failed" if isinstance(result, Exception) or "error" in str(result).lower() else "completed"
+                step.result = result
+                break
+
+    def adjust(self, feedback: str):
+        """Dynamic adjustment based on reflection."""
+        logger.info(f"Plan adjustment: {feedback}")
+        if "more information" in feedback.lower() or "search" in feedback.lower():
+            new_step = PlanStep(
+                tool="web_search",
+                args={"query": feedback},
+                description="Follow-up search based on reflection",
+                priority=0.5  # insert early
+            )
+            self.steps.insert(0, new_step)
+
+    def to_list(self) -> List[Dict]:
+        return [s.to_dict() for s in self.steps]
+
+
+class Planner:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def create_initial_plan(
+        self,
+        intent: str,
+        context: Dict[str, Any]
+    ) -> Plan:
+        """
+        Generate a dynamic, multi-step plan using LLM based on intent and full context.
+        """
+        # Fast path: simple conversation with no calendar → no need for planning
+        if intent == "conversation" and not context.get("calendar"):
+            return Plan([PlanStep(
+                tool="none",
+                args={},
+                description="Direct conversational response",
+                priority=1
+            )])
+
+        # Build rich prompt with all context layers
+        prompt = self._build_planning_prompt(intent, context)
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Fast & cost-effective for planning
+                messages=[
+                    {"role": "system", "content": """
+You are a precise, logic-driven task planner for an AI assistant.
+Your job is to break down the user's intent into a short sequence (2–5) of actionable steps.
+Use only the AVAILABLE TOOLS listed. Do not invent tools.
+
+Prioritize:
+- Use calendar when events or scheduling are relevant.
+- Use web_search for real-time info (weather, news, prices).
+- Use order_food for food-related requests.
+- Keep steps minimal and sequential.
+
+Output format: JSON {"steps": [{"tool": "...", "args": {...}, "description": "..."}]}
+"""},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.4,  # Low variance for consistent plans
+                max_tokens=600
+            )
+
+            plan_data = json.loads(response.choices[0].message.content)
+            steps_data = plan_data.get("steps", [])
+
+            steps = []
+            for i, s in enumerate(steps_data, 1):
+                steps.append(PlanStep(
+                    tool=s.get("tool", "none"),
+                    args=s.get("args", {}),
+                    description=s.get("description", "Unnamed step"),
+                    priority=i
+                ))
+
+            if not steps:
+                steps.append(PlanStep("none", {}, "Direct reasoning"))
+
+            return Plan(steps)
+
+        except Exception as e:
+            logger.error(f"LLM planning failed: {e}", exc_info=True)
+            return self._get_static_fallback(intent, context)
+
+    def _build_planning_prompt(self, intent: str, context: Dict) -> str:
+        """Rich, structured prompt using all available context."""
+        prefs = json.dumps(context.get("persistent", {}), indent=2)
+        calendar = "\n".join([f"- {e.get('summary')} at {e.get('start')}" for e in context.get("calendar", [])[:3]]) or "No upcoming events."
+        time_str = context.get("current_time", "unknown")
+        location = context.get("location", "Toronto")
+
+        return f"""
+Intent: {intent}
+User query context: Use the following information to plan steps.
+
+User preferences/facts:
+{prefs}
+
+Calendar:
+{calendar}
+
+Time: {time_str}
+Location: {location}
+
+Generate a short, logical plan using only available tools.
+"""
+
+    def _get_static_fallback(self, intent: str, context: Dict) -> Plan:
+        """Reliable static plan when LLM fails."""
+        steps = [PlanStep("none", {}, "General reasoning", priority=1)]
+
+        if intent in ["web_search", "weather", "news", "price"]:
+            steps = [
+                PlanStep("web_search", {"query": intent}, "Fetch real-time information", priority=1),
+                PlanStep("none", {}, "Summarize results", priority=2)
+            ]
+
+        elif intent == "order_food":
+            steps = [
+                PlanStep("order_food", {}, "Find and present food options", priority=1),
+                PlanStep("none", {}, "Confirm with user", priority=2)
+            ]
+
+        elif intent in ["calendar_event", "schedule"]:
+            steps = [
+                PlanStep("create_calendar_event", {}, "Parse and create event", priority=1)
+            ]
+
+        # Add proactive morning/evening
+        hour = datetime.now(timezone.utc).hour
+        if 6 <= hour <= 10:
+            steps.append(PlanStep("none", {}, "Offer morning briefing", priority=3))
+
+        return Plan(steps)-e 
+=======================================
+
+FILE: ./brain/decision_core.py
+---------------------------------------
+from backend.security.policy_guard import PolicyGuard
+
+
+class DecisionCore:
+
+    def __init__(self):
+        self.guard = PolicyGuard()
+
+    async def decide(self, intent: str, data: dict):
+
+        # Security First
+        if not self.guard.allow(intent):
+            return {
+                "status": "blocked",
+                "reason": "policy violation"
+            }
+
+        intent = intent.lower()
+
+        # Routing only — NO EXECUTION HERE ⭐
+
+        if "email" in intent:
+            return {
+                "intent": "email_analysis"
+            }
+
+        if "sms" in intent:
+            return {
+                "intent": "communication"
+            }
+
+        if "trade" in intent:
+            return {
+                "intent": "finance_trade"
+            }
+
+        if "plan" in intent:
+            return {
+                "intent": "planning"
+            }
+
+        return {
+            "intent": "chat"
+        }-e 
+=======================================
+
+FILE: ./brain/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./brain/master_brain.py
+---------------------------------------
+# backend/brain/master_brain.py
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List, Optional
+
+# Core AI modules
+from backend.brain.emotional_model import EmotionalModel
+from backend.brain.behavior_predictor import BehaviorPredictor
+from backend.brain.reasoning import ReasoningModule
+from backend.brain.planner import Planner
+from backend.brain.reflection import ReflectionModule
+from backend.brain.intent_classifier import IntentClassifier
+
+# Security & Tools
+from backend.security.logging_system import AILogger
+from backend.security.policy_guard import PolicyGuard
+from backend.tools.tool_router import ToolRouter
+from backend.tools.argument_extractor import ArgumentExtractor
+
+# Memory
+from backend.memory.memory_store import MemoryStore
+from backend.memory.persistent_memory import PersistentMemoryStore
+from backend.memory.vector_memory import VectorMemory
+
+# Services
+from backend.services.google.google_auth import GoogleAuth
+from backend.services.calendar.calendar_service import CalendarService
+from backend.services.food.food_order_agent import FoodOrderAgent
+from backend.services.payment.stripe_service import StripeService
+
+from backend.utils.logger import logger
+
+class MasterBrain:
+    def __init__(self):
+        self.google_auth = GoogleAuth()
+        # Initialize Calendar only if auth is valid
+        self.calendar = CalendarService(self.google_auth.credentials) if self.google_auth.credentials else None
+        self.stripe = StripeService()
+        self.food_agent = FoodOrderAgent()
+
+        self.reasoner = ReasoningModule()
+        self.planner = Planner()
+        self.reflector = ReflectionModule()
+        self.intent_engine = IntentClassifier()
+        self.extractor = ArgumentExtractor()
+        
+        self.behavior = BehaviorPredictor()
+        self.emotions = EmotionalModel()
+        self.short_term = MemoryStore()
+        self.persistent = PersistentMemoryStore()
+        self.vector = VectorMemory()
+
+        # Tool Router Integration
+        self.router = ToolRouter()
+        self.guard = PolicyGuard()
+        self.security_logger = AILogger()
+
+    @staticmethod
+    def _extract_text(payload: Any) -> str:
+        """Safely extracts text string from a Dict, Object, or String."""
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("answer", str(payload))
+        return getattr(payload, "text", str(payload))
+
+    async def process_query(self, user_input: str, user_id: str = "default_user") -> Dict[str, Any]:
+        try:
+            # Step 1: Context Assembly
+            context = await self._assemble_context(user_input, user_id)
+            
+            # Step 2: Intent Classification
+            intent_result = await self.intent_engine.classify(user_input, context)
+            intent = intent_result.get("intent", "conversation")
+            confidence = intent_result.get("confidence", 0.0)
+            context.update({"intent": intent, "intent_confidence": confidence})
+
+            # Step 3: Security Guard
+            if not self.guard.allow(intent):
+                return {
+                    "answer": "I'm sorry, my security policy doesn't allow me to perform that action.", 
+                    "emotion": "protective"
+                }
+
+            # Step 4: Planning & Execution Loop
+            execution_results = []
+            plan = await self.planner.create_initial_plan(intent, context)
+
+            for attempt in range(3):
+                current_step = plan.get_next_step(execution_results)
+                
+                if not current_step or current_step.get("tool") == "none":
+                    break
+
+                tool_name = current_step.get("tool")
+                args = {}
+                
+                if self.extractor and confidence >= 0.6:
+                    args = await self.extractor.extract(tool_name, user_input, context)
+
+                try:
+                    tool_result = await asyncio.wait_for(
+                        self.router.execute(tool_name, args), 
+                        timeout=10.0
+                    )
+                    execution_results.append({"tool": tool_name, "result": tool_result})
+                    plan.update_step(tool_name, tool_result)
+
+                    reflection = await asyncio.wait_for(
+                        self.reflector.analyze(execution_results, intent, user_input, context),
+                        timeout=8.0
+                    )
+                    
+                    if reflection.get("complete", False):
+                        break
+                    
+                    plan.adjust(reflection.get("feedback"))
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool execution timed out: {tool_name}")
+                    execution_results.append({"tool": tool_name, "result": "Error: Tool timed out."})
+                    break
+                except Exception as e:
+                    logger.error(f"Tool execution error ({tool_name}): {e}")
+                    execution_results.append({"tool": tool_name, "result": f"Error: {str(e)}"})
+                    break
+
+            # Step 5: Final Synthesis
+            emotional_state = self.emotions.update(user_input, context)
+            
+            if asyncio.iscoroutinefunction(self.reasoner.synthesize):
+                final_output = await self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+            else:
+                final_output = self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+
+            reply_answer = self._extract_text(final_output)
+
+            # Step 6: Background Learning (Fire and Forget)
+            asyncio.create_task(self._learn(user_id, user_input, reply_answer, execution_results))
+
+            return {
+                "answer": reply_answer,
+                "emotion": emotional_state,
+                "plan": plan.to_list(),
+                "proactive_suggestions": self._generate_proactive_suggestions(context),
+                "metadata": {
+                    "intent": intent,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "location": context.get("location", "Unknown")
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Critical Brain Failure: {str(e)}", exc_info=True)
+            return {"answer": "I'm having trouble thinking clearly right now.", "error": True}
+
+    # --- FIXED INDENTATION: This method is now outside of process_query ---
+    async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
+        """Gathers memory, preferences, and external context concurrently."""
+        vector_task = self.vector.search(text, limit=3) if self.vector else asyncio.sleep(0, result=[])
+
+        tasks = [
+            self.persistent.get_entity("user_preferences"),
+            vector_task,
+            self._get_calendar_events()
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        prefs = results[0] if not isinstance(results[0], Exception) else {}
+        semantic_mem = results[1] if not isinstance(results[1], Exception) else []
+        events = results[2] if not isinstance(results[2], Exception) else []
+
+        return {
+            "short_term": await self.persistent.recall_recent(user_id=user_id, limit=10),
+            "preferences": prefs,
+            "semantic_memory": semantic_mem,
+            "calendar_events": events,
+            "current_time": datetime.now(timezone.utc).isoformat()
+        }
+
+    async def _get_calendar_events(self) -> List[Any]:
+        if not self.calendar:
+            return []
+        try:
+            # Check if your service uses 'limit' or 'max_results'
+            return await self.calendar.get_upcoming_events(limit=5)
+        except Exception:
+            return []
+
+    async def _learn(self, user_id: str, query: str, answer: str, tools: List[Dict]):
+        """Saves interaction to persistent and vector memory."""
+        try:
+            # Using .save to match your PersistentMemoryStore's method name
+            await self.persistent.save(query, answer, context={"user_id": user_id})
+            if self.vector:
+                await self.vector.add_interaction(query, answer)
+        except Exception as e:
+            logger.error(f"Learning failure: {e}")
+
+    def _generate_proactive_suggestions(self, context: Dict) -> List[str]:
+        """Generates dynamic chips/suggestions based on context."""
+        return ["Check my schedule", "What's the weather?"]
+-e 
+=======================================
+
+FILE: ./logic_dump.txt
+---------------------------------------
+
+====================
+FILE: brain/intent_classifier.py
+====================
+# backend/brain/intent_classifier.py
+from openai import AsyncOpenAI
+from backend.config.settings import settings
+import json
+
+class IntentClassifier:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def classify(self, message: str, context: dict = None) -> dict:
+        prompt = f"""
+Classify this user message: "{message}"
+
+Possible intents (pick ONE):
+- conversation: casual chat, greetings, questions about self (name, favorite food, likes, allergies)
+- web_search: weather, temperature, forecast, news, price, research, "is it raining", "what's the weather"
+- order_food: food, restaurant, order, pizza, delivery, lunch, dinner, eat
+- calendar_event: schedule, meeting, add event, book time, calendar, reminder
+- other: anything else
+
+Return ONLY JSON:
+{{
+  "intent": "one_of_the_above",
+  "confidence": 0.0_to_1.0,
+  "reason": "one sentence why"
+}}
+"""
+
+        try:
+            resp = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=150,
+                response_format={"type": "json_object"}
+            )
+            return json.loads(resp.choices[0].message.content.strip())
+        except Exception:
+            return {"intent": "conversation", "confidence": 0.5, "reason": "fallback due to error"}
+====================
+FILE: tools/weather_tool.py
+====================
+import httpx
+
+
+class WeatherTool:
+
+    async def get_weather(self, location="Toronto"):
+
+        coords = await self._geocode(location)
+
+        if not coords:
+            return {"error": "Location not found"}
+
+        lat = coords["lat"]
+        lon = coords["lon"]
+
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&current_weather=true"
+        )
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url)
+
+        data = r.json()["current_weather"]
+
+        return {
+            "location": location,
+            "temperature_c": data["temperature"],
+            "wind_kph": data["windspeed"],
+            "wind_direction": data["winddirection"],
+            "time": data["time"]
+        }
+
+    async def _geocode(self, location):
+
+        url = "https://geocoding-api.open-meteo.com/v1/search"
+
+        params = {
+            "name": location,
+            "count": 1
+        }
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params=params)
+
+        data = r.json()
+
+        if "results" not in data:
+            return None
+
+        result = data["results"][0]
+
+        return {
+            "lat": result["latitude"],
+            "lon": result["longitude"]
+        }
+====================
+FILE: tools/registry.py
+====================
+# backend/tools/registry.py
+
+TOOLS_REGISTRY = {}
+
+
+def register_tool(name, description, function=None):
+    """
+    Register tool function
+    """
+
+    def decorator(func):
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": func
+        }
+        return func
+
+    if function:
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": function
+        }
+        return function
+
+    return decorator
+
+
+def get_tool(name):
+    return TOOLS_REGISTRY.get(name)
+
+
+def list_tools():
+    return list(TOOLS_REGISTRY.keys())
+====================
+FILE: brain/master_brain.py
+====================
+# backend/brain/master_brain.py
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List, Optional
+
+# Core AI modules
+from backend.brain.emotional_model import EmotionalModel
+from backend.brain.behavior_predictor import BehaviorPredictor
+from backend.brain.reasoning import ReasoningModule
+from backend.brain.planner import Planner
+from backend.brain.reflection import ReflectionModule
+from backend.brain.intent_classifier import IntentClassifier
+
+# Security & Tools
+from backend.security.logging_system import AILogger
+from backend.security.policy_guard import PolicyGuard
+from backend.tools.tool_router import ToolRouter
+from backend.tools.argument_extractor import ArgumentExtractor
+
+# Memory
+from backend.memory.memory_store import MemoryStore
+from backend.memory.persistent_memory import PersistentMemoryStore
+from backend.memory.vector_memory import VectorMemory
+
+# Services
+from backend.services.google.google_auth import GoogleAuth
+from backend.services.calendar.calendar_service import CalendarService
+from backend.services.food.food_order_agent import FoodOrderAgent
+from backend.services.payment.stripe_service import StripeService
+
+from backend.utils.logger import logger
+
+class MasterBrain:
+    def __init__(self):
+        self.google_auth = GoogleAuth()
+        # Initialize Calendar only if auth is valid
+        self.calendar = CalendarService(self.google_auth.credentials) if self.google_auth.credentials else None
+        self.stripe = StripeService()
+        self.food_agent = FoodOrderAgent()
+
+        self.reasoner = ReasoningModule()
+        self.planner = Planner()
+        self.reflector = ReflectionModule()
+        self.intent_engine = IntentClassifier()
+        self.extractor = ArgumentExtractor()
+        
+        self.behavior = BehaviorPredictor()
+        self.emotions = EmotionalModel()
+        self.short_term = MemoryStore()
+        self.persistent = PersistentMemoryStore()
+        self.vector = VectorMemory()
+
+        # Tool Router Integration
+        self.router = ToolRouter()
+        self.guard = PolicyGuard()
+        self.security_logger = AILogger()
+
+    @staticmethod
+    def _extract_text(payload: Any) -> str:
+        """Safely extracts text string from a Dict, Object, or String."""
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("answer", str(payload))
+        # Fallback for object attributes
+        return getattr(payload, "text", str(payload))
+
+    async def process_query(self, user_input: str, user_id: str = "default_user") -> Dict[str, Any]:
+        try:
+            # Step 1: Context Assembly
+            context = await self._assemble_context(user_input, user_id)
+            
+            # Step 2: Intent Classification
+            intent_result = await self.intent_engine.classify(user_input, context)
+            intent = intent_result.get("intent", "conversation")
+            confidence = intent_result.get("confidence", 0.0)
+            context.update({"intent": intent, "intent_confidence": confidence})
+
+            # Step 3: Security Guard
+            if not self.guard.allow(intent):
+                return {
+                    "answer": "I'm sorry, my security policy doesn't allow me to perform that action.", 
+                    "emotion": "protective"
+                }
+
+            # Step 4: Planning & Execution Loop
+            execution_results = []
+            plan = await self.planner.create_initial_plan(intent, context)
+
+            for attempt in range(3):
+                current_step = plan.get_next_step(execution_results)
+                
+                # Stop if no tools needed or plan is done
+                if not current_step or current_step.get("tool") == "none":
+                    break
+
+                tool_name = current_step.get("tool")
+                args = {}
+                
+                # Extract arguments if confidence is high enough
+                if self.extractor and confidence > 0.6:
+                    args = await self.extractor.extract(tool_name, user_input, context)
+
+                try:
+                    # Execute Tool via Router
+                    tool_result = await asyncio.wait_for(
+                        self.router.execute(tool_name, args), 
+                        timeout=10.0
+                    )
+                    execution_results.append({"tool": tool_name, "result": tool_result})
+                    plan.update_step(tool_name, tool_result)
+
+                    # Reflection Phase
+                    reflection = await asyncio.wait_for(
+                        self.reflector.analyze(execution_results, intent, user_input, context),
+                        timeout=8.0
+                    )
+                    
+                    if reflection.get("complete", False):
+                        break
+                    
+                    plan.adjust(reflection.get("feedback"))
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool execution timed out: {tool_name}")
+                    execution_results.append({"tool": tool_name, "result": "Error: Tool timed out."})
+                    break
+                except Exception as e:
+                    logger.error(f"Tool execution error ({tool_name}): {e}")
+                    execution_results.append({"tool": tool_name, "result": f"Error: {str(e)}"})
+                    break
+
+            # Step 5: Final Synthesis
+            emotional_state = self.emotions.update(user_input, context)
+            
+            # Handle both sync and async synthesize methods safely
+            if asyncio.iscoroutinefunction(self.reasoner.synthesize):
+                final_output = await self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+            else:
+                final_output = self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+
+            # Normalize the output text using helper
+            reply_answer = self._extract_text(final_output)
+
+            # Step 6: Background Learning (Fire and Forget)
+            asyncio.create_task(self._learn(user_id, user_input, reply_answer, execution_results))
+
+            return {
+                "answer": reply_answer,
+                "emotion": emotional_state,
+                "plan": plan.to_list(),
+                "proactive_suggestions": self._generate_proactive_suggestions(context),
+                "metadata": {
+                    "intent": intent,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "location": context.get("location", "Unknown")
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Critical Brain Failure: {str(e)}", exc_info=True)
+            return {"answer": "I'm having trouble thinking clearly right now. Let's try again.", "error": True}
+
+    async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
+        """Gathers memory, preferences, and external context concurrently."""
+        
+        # Define the vector search task conditionally
+        vector_task = self.vector.search(text, limit=3) if self.vector else asyncio.sleep(0, result=[])
+
+        # Tasks tuple (fixed order)
+        tasks = [
+            self.persistent.get_entity("user_preferences"),
+            vector_task,
+            self._get_calendar_events()
+        ]
+        
+        # Gather all contexts safely; errors in one won't kill the others
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Unpack results safely
+        prefs = results[0] if not isinstance(results[0], Exception) else {}
+        semantic_mem = results[1] if not isinstance(results[1], Exception) else []
+        events = results[2] if not isinstance(results[2], Exception) else []
+
+        return {
+            "short_term": await self.persistent.recall_recent(limit=5), 
+            "persistent": prefs,
+            "semantic": semantic_mem,
+            "calendar": events,
+            "current_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S EST"),
+            "location": "Unknown Location" 
+        }
+
+    async def _get_calendar_events(self) -> List[Dict]:
+        if not self.calendar: 
+            return []
+        try:
+            return await asyncio.to_thread(self.calendar.list_upcoming_events, max_results=5)
+        except Exception as e:
+            logger.warning(f"Calendar fetch failed: {e}")
+            return []
+
+    async def _learn(self, user_id: str, query: str, output_text: str, results: List[Dict]):
+        """Background process to update memory and vectors."""
+        try:
+            # 1. Save interaction to persistent logs
+            await self.persistent.save(input_text=query, output_text=output_text)
+            
+            # 2. Extract new facts/knowledge
+            new_facts = await self.reflector.extract_knowledge(query, output_text, results)
+            
+            if new_facts and self.vector:
+                # 3. Update Vector DB
+                await self.vector.add_documents([f"{f['key']}: {f['value']}" for f in new_facts])
+                
+                # 4. Update Entity Store (Structured Memory)
+                # Check for method existence to prevent AttributeErrors
+                can_update = hasattr(self.persistent, "update_entity")
+                can_set = hasattr(self.persistent, "set_entity")
+
+                if not (can_update or can_set):
+                    # Prevent log spam if method is missing
+                    return
+
+                for fact in new_facts:
+                    if isinstance(fact, dict):
+                        key = fact.get("key")
+                        value = fact.get("value")
+                        if key and value:
+                            if can_update:
+                                await self.persistent.update_entity(key, value)
+                            elif can_set:
+                                await self.persistent.set_entity(key, value)
+
+        except Exception as e:
+            logger.error(f"Learning loop failed for user {user_id}: {e}")
+
+    def _generate_proactive_suggestions(self, context: Dict) -> List[str]:
+        """Placeholder logic for proactive suggestions."""
+        return []
+
+====================
+FILE: tools/tool_router.py
+====================
+import asyncio
+from twilio.rest import Client
+from ddgs import DDGS
+
+from backend.security.tool_guard import ToolGuard
+from backend.utils.logger import logger
+from backend.config.settings import settings
+from backend.tools.weather_tool import WeatherTool
+
+# Services
+from backend.services.email.email_service import EmailService
+from backend.services.shopping.shopping_agent import ShoppingAgent
+from backend.services.food.food_order_agent import FoodOrderAgent
+
+
+class ToolRouter:
+
+    def __init__(self):
+
+        self.twilio_client = None
+        self.guard = ToolGuard()
+        self.weather_tool = WeatherTool()   # FIX: initialize weather tool
+
+        # Twilio init
+        if settings.twilio_account_sid and settings.twilio_auth_token:
+            try:
+                sid = settings.twilio_account_sid.get_secret_value()
+                token = settings.twilio_auth_token.get_secret_value()
+                self.twilio_client = Client(sid, token)
+                logger.success("Twilio initialized")
+            except Exception:
+                logger.error("Twilio init failed", exc_info=True)
+        else:
+            logger.warning("Twilio disabled — missing credentials")
+
+    # --------------------------------------------------
+    # MAIN ENTRY
+    # --------------------------------------------------
+
+    async def execute(self, action: str, payload=None):
+
+        payload = payload or {}
+
+        logger.info(f"ToolRouter received action={action} payload={payload}")
+
+        if not self.guard.allow(action):
+            return {"error": "Tool blocked by safety policy"}
+
+        handlers = {
+            "weather": self.weather,
+            "web_search": self.web_search,
+            "restaurant_search": self.restaurant_search,
+            "order_food": self.order_food,
+            "food_suggest": self.food_suggest,
+            "shop_search": self.shop_search,
+            "send_sms": self.send_sms,
+            "reply_email": self.reply_email,
+            "chat": self.chat
+        }
+
+        handler = handlers.get(action)
+
+        if not handler:
+            return {"error": f"Unknown action {action}"}
+
+        try:
+
+            if asyncio.iscoroutinefunction(handler):
+                return await handler(payload)
+
+            return handler(payload)
+
+        except Exception as e:
+            logger.error(f"Tool execution failed: {action}", exc_info=True)
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------
+
+    async def weather(self, payload):
+
+        location = payload.get("location", "Toronto")
+
+        return await self.weather_tool.get_weather(location)
+
+    # --------------------------------------------------
+    # WEB SEARCH
+    # --------------------------------------------------
+
+    async def web_search(self, payload):
+
+        query = payload.get("query")
+
+        if not query:
+            return {"error": "Missing query"}
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=5))
+
+                formatted = []
+
+                for r in results:
+                    formatted.append({
+                        "title": r.get("title"),
+                        "snippet": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return formatted
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # RESTAURANT DISCOVERY
+    # --------------------------------------------------
+
+    async def restaurant_search(self, payload):
+
+        cuisine = payload.get("cuisine")
+        location = payload.get("location")
+
+        if not cuisine:
+            return {"error": "Cuisine required"}
+
+        query = f"best {cuisine} restaurants in {location or 'near me'}"
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=6))
+
+                restaurants = []
+
+                for r in results:
+
+                    restaurants.append({
+                        "name": r.get("title"),
+                        "description": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return restaurants
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # FOOD ORDERING
+    # --------------------------------------------------
+
+    async def order_food(self, payload):
+
+        agent = FoodOrderAgent()
+
+        return await agent.place_order(payload)
+
+    # --------------------------------------------------
+    # FOOD SUGGESTIONS
+    # --------------------------------------------------
+
+    async def food_suggest(self, payload):
+
+        cuisine = payload.get("cuisine")
+
+        agent = FoodOrderAgent()
+
+        return await agent.suggest(cuisine)
+
+    # --------------------------------------------------
+    # SHOPPING
+    # --------------------------------------------------
+
+    async def shop_search(self, payload):
+
+        agent = ShoppingAgent()
+
+        return await agent.search(payload.get("query"))
+
+    # --------------------------------------------------
+    # SMS
+    # --------------------------------------------------
+
+    def send_sms(self, payload):
+
+        if not self.twilio_client:
+            return {"error": "Twilio client not initialized"}
+
+        try:
+
+            msg = self.twilio_client.messages.create(
+                body=payload.get("body", ""),
+                from_=settings.twilio_number_primary,
+                to=payload.get("to") or settings.owner_number
+            )
+
+            return {"success": True, "sid": msg.sid}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # EMAIL
+    # --------------------------------------------------
+
+    async def reply_email(self, payload):
+
+        try:
+
+            service = EmailService()
+
+            result = await asyncio.to_thread(
+                service.send_email,
+                payload.get("to"),
+                payload.get("subject"),
+                payload.get("body")
+            )
+
+            return {"success": True, "result": result}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # CHAT FALLBACK
+    # --------------------------------------------------
+
+    def chat(self, payload):
+
+        return {
+            "action": "chat",
+            "message": payload.get("message", "")
+        }
+====================
+FILE: main.py
+====================
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+logger.info("Starting AI Companion API v1.0")
+logger.debug("Environment configuration loaded")
+# Load .env with absolute path
+env_path = os.path.join(os.path.dirname(__file__), "secrets", ".env")
+loaded = load_dotenv(env_path)
+print(f"[MAIN] .env loaded from {env_path}: {loaded}")
+
+
+
+app = FastAPI(
+    title="AI Companion",
+    version="1.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=True
+)
+
+# Load routes with detailed debug
+print("[MAIN] Starting route loading...")
+
+try:
+    # AI routes
+    print("[MAIN] Loading AI routes...")
+    from backend.services.ai.ai_service import router as ai_router
+    app.include_router(ai_router, prefix="/ai", tags=["AI"])
+    print("[MAIN] AI routes included")
+
+    # Email routes
+    print("[MAIN] Loading email routes...")
+    from backend.api.email_routes import router as email_router
+    app.include_router(email_router, prefix="/email", tags=["Email"])
+    print("[MAIN] Email routes included")
+
+    # SMS routes – webhook is here
+    print("[MAIN] Loading SMS routes...")
+    from backend.api.sms_routes import router as sms_router
+    app.include_router(sms_router, prefix="/sms", tags=["SMS"])
+    print("[MAIN] SMS routes included – webhook should be at /sms/webhook")
+
+    print("[MAIN] All routes loaded successfully!")
+
+except ImportError as ie:
+    print(f"[MAIN] IMPORT ERROR: {ie}")
+    print("  - Check file paths, spelling, and folder structure")
+except Exception as e:
+    print(f"[MAIN] GENERAL ROUTE LOAD ERROR: {e}")
+
+@app.get("/")
+def root():
+    return {"status": "online", "service": "AI Companion Core"}
+====================
+FILE: api/sms_routes.py
+====================
+# backend/api/sms_routes.py
+import logging
+import traceback
+from fastapi import APIRouter, Request, Form, HTTPException, Response
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+
+from backend.brain.master_brain import MasterBrain
+from backend.config.settings import settings
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Initialize the brain once so it maintains session state
+# Ensure MasterBrain() __init__ doesn't crash on startup
+try:
+    brain = MasterBrain()
+except Exception as e:
+    logger.error(f"FATAL: MasterBrain failed to initialize: {e}")
+    traceback.print_exc()
+    brain = None
+
+# Initialize Twilio Validator for security
+validator = RequestValidator(settings.twilio_auth_token.get_secret_value())
+
+@router.post("/webhook")
+async def sms_webhook(
+    request: Request,
+    Body: str = Form(...),
+    From: str = Form(...)
+):
+    # 1. ⭐ Security: Verify Twilio signature
+    form_data = await request.form()
+    url = str(request.url)
+    signature = request.headers.get("X-Twilio-Signature")
+
+    # Important: dict(form_data) is required for the validator
+    if not signature or not validator.validate(url, dict(form_data), signature):
+        logger.error(f"⚠️ Unauthorized webhook attempt from {From}")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    logger.info(f"📩 SMS from {From}: {Body}")
+
+    # 2. ⭐ Safety: Truncate very long messages
+    if len(Body) > 1600:
+        Body = Body[:1600] + "..."
+
+    # Default fallback message
+    reply_text = "I'm having trouble thinking right now. Please try again."
+
+    # 3. ⭐ Process with MasterBrain
+    if not brain:
+        reply_text = "System Error: Brain not initialized."
+    else:
+        try:
+            # Request the brain to process the query
+            # We use process_query to match the superior MasterBrain architecture
+            brain_response = await brain.process_query(Body, user_id=From)
+            
+            # Extract the main text answer
+            reply_text = brain_response.get("answer", "I processed that, but have no words.")
+            
+            # Append proactive suggestions if the brain generated any
+            suggestions = brain_response.get("proactive_suggestions", [])
+            if suggestions and isinstance(suggestions, list):
+                reply_text += "\n\n💡 " + "\n💡 ".join(suggestions)
+
+        except Exception as e:
+            # THIS IS KEY: It prints the EXACT error to your terminal so you can fix it
+            print("\n" + "!"*20 + " BRAIN CRASH DETECTED " + "!"*20)
+            traceback.print_exc() 
+            print("!"*62 + "\n")
+            
+            logger.error(f"❌ Brain execution error: {e}")
+            reply_text = "Something went wrong on my end — let's try again?"
+
+    logger.info(f"🤖 AI Reply to {From}: {reply_text[:100]}...")
+
+    # 4. ⭐ Format TwiML response for Twilio
+    twiml = MessagingResponse()
+    twiml.message(reply_text)
+
+    # Return as application/xml so Twilio recognizes the response
+    return Response(
+        content=str(twiml), 
+        media_type="application/xml"
+    )
+
+====================
+FILE: api/twilio_webhook.py
+====================
+# backend/api/twilio_webhook.py
+from fastapi import APIRouter, Request, Response, HTTPException
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+
+from backend.brain.master_brain import MasterBrain
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+router = APIRouter()
+brain = MasterBrain()
+
+@router.post("/sms")
+async def receive_sms(request: Request):
+    """
+    Hardened Twilio Webhook: Validates signatures and verifies the owner.
+    """
+    # 1. TWILIO SIGNATURE VALIDATION (Anti-Spoofing)
+    validator = RequestValidator(settings.twilio_auth_token.get_secret_value())
+    
+    url = str(request.url)
+    if "http://" in url and not url.startswith("http://localhost"):
+        url = url.replace("http://", "https://")  # Fixes proxy/GoDaddy SSL issues
+
+    form_data = await request.form()
+    signature = request.headers.get("X-Twilio-Signature")
+
+    if not signature or not validator.validate(url, dict(form_data), signature):
+        logger.error("🚨 SECURITY ALERT: Invalid Twilio Signature detected!")
+        return Response(content="Forbidden", status_code=403)
+
+    # 2. OWNER WHITELIST
+    sender = form_data.get("From")
+    incoming_msg = form_data.get("Body", "").strip()
+
+    if settings.owner_number and sender != settings.owner_number:
+        logger.warning(f"🚫 Unauthorized access attempt from {sender}")
+        return Response(content="Unauthorized", status_code=403)
+
+    logger.info(f"📲 Verified SMS from {sender}: {incoming_msg}")
+
+    # ────────────────────────────────────────────────
+    # FIXED: Build proper context so IntentRouter can detect tools
+    # ────────────────────────────────────────────────
+    context = {
+        "sender": sender,
+        "sentiment": 0.7,           # or compute real sentiment if you have it
+        # Let the brain's IntentRouter decide what tool (if any) to use
+    }
+
+    # Process with full brain (this will now trigger web_search for weather)
+    result = await brain.think(incoming_msg, context=context)
+
+    reply = result.get("reply_text", "Sorry, I couldn't process that right now.")
+
+    # Optional: log the full result for debugging
+    logger.info(f"AI generated reply: {reply[:200]}{'...' if len(reply) > 200 else ''}")
+
+    # 4. SECURE XML RESPONSE
+    twilio_resp = MessagingResponse()
+    
+    # Safety cap (Twilio segment limit ~1600 chars, but we keep it shorter)
+    safe_reply = (reply[:1200] + " [...] (message truncated)") if len(reply) > 1200 else reply
+    twilio_resp.message(safe_reply)
+
+    return Response(content=str(twilio_resp), media_type="application/xml")
+====================
+FILE: tools/registry.py
+====================
+# backend/tools/registry.py
+
+TOOLS_REGISTRY = {}
+
+
+def register_tool(name, description, function=None):
+    """
+    Register tool function
+    """
+
+    def decorator(func):
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": func
+        }
+        return func
+
+    if function:
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": function
+        }
+        return function
+
+    return decorator
+
+
+def get_tool(name):
+    return TOOLS_REGISTRY.get(name)
+
+
+def list_tools():
+    return list(TOOLS_REGISTRY.keys())
+    
+
+from tools import weather_tool, amazon_tool, walmart_tool, browser_tool, kitchenhub_tool
+
+====================
+FILE: tools/weather_tool.py
+====================
+import httpx
+
+
+class WeatherTool:
+
+    async def get_weather(self, location="Toronto"):
+
+        coords = await self._geocode(location)
+
+        if not coords:
+            return {"error": "Location not found"}
+
+        lat = coords["lat"]
+        lon = coords["lon"]
+
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&current_weather=true"
+        )
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url)
+
+        data = r.json()["current_weather"]
+
+        return {
+            "location": location,
+            "temperature_c": data["temperature"],
+            "wind_kph": data["windspeed"],
+            "wind_direction": data["winddirection"],
+            "time": data["time"]
+        }
+
+    async def _geocode(self, location):
+
+        url = "https://geocoding-api.open-meteo.com/v1/search"
+
+        params = {
+            "name": location,
+            "count": 1
+        }
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params=params)
+
+        data = r.json()
+
+        if "results" not in data:
+            return None
+
+        result = data["results"][0]
+
+        return {
+            "lat": result["latitude"],
+            "lon": result["longitude"]
+        }
+        
+        weather_inst = WeatherTool()
+
+@register_tool("weather", "Get current weather for a location")
+async def get_weather_tool(location="Toronto"):
+    return await weather_inst.get_weather(location)
+====================
+FILE: brain/master_brain.py
+====================
+# backend/brain/master_brain.py
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List, Optional
+
+# Core AI modules
+from backend.brain.emotional_model import EmotionalModel
+from backend.brain.behavior_predictor import BehaviorPredictor
+from backend.brain.reasoning import ReasoningModule
+from backend.brain.planner import Planner
+from backend.brain.reflection import ReflectionModule
+from backend.brain.intent_classifier import IntentClassifier
+
+# Security & Tools
+from backend.security.logging_system import AILogger
+from backend.security.policy_guard import PolicyGuard
+from backend.tools.tool_router import ToolRouter
+from backend.tools.argument_extractor import ArgumentExtractor
+
+# Memory
+from backend.memory.memory_store import MemoryStore
+from backend.memory.persistent_memory import PersistentMemoryStore
+from backend.memory.vector_memory import VectorMemory
+
+# Services
+from backend.services.google.google_auth import GoogleAuth
+from backend.services.calendar.calendar_service import CalendarService
+from backend.services.food.food_order_agent import FoodOrderAgent
+from backend.services.payment.stripe_service import StripeService
+
+from backend.utils.logger import logger
+
+class MasterBrain:
+    def __init__(self):
+        self.google_auth = GoogleAuth()
+        # Initialize Calendar only if auth is valid
+        self.calendar = CalendarService(self.google_auth.credentials) if self.google_auth.credentials else None
+        self.stripe = StripeService()
+        self.food_agent = FoodOrderAgent()
+
+        self.reasoner = ReasoningModule()
+        self.planner = Planner()
+        self.reflector = ReflectionModule()
+        self.intent_engine = IntentClassifier()
+        self.extractor = ArgumentExtractor()
+        
+        self.behavior = BehaviorPredictor()
+        self.emotions = EmotionalModel()
+        self.short_term = MemoryStore()
+        self.persistent = PersistentMemoryStore()
+        self.vector = VectorMemory()
+
+        # Tool Router Integration
+        self.router = ToolRouter()
+        self.guard = PolicyGuard()
+        self.security_logger = AILogger()
+
+    @staticmethod
+    def _extract_text(payload: Any) -> str:
+        """Safely extracts text string from a Dict, Object, or String."""
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("answer", str(payload))
+        # Fallback for object attributes
+        return getattr(payload, "text", str(payload))
+
+    async def process_query(self, user_input: str, user_id: str = "default_user") -> Dict[str, Any]:
+        try:
+            # Step 1: Context Assembly
+            context = await self._assemble_context(user_input, user_id)
+            
+            # Step 2: Intent Classification
+            intent_result = await self.intent_engine.classify(user_input, context)
+            intent = intent_result.get("intent", "conversation")
+            confidence = intent_result.get("confidence", 0.0)
+            context.update({"intent": intent, "intent_confidence": confidence})
+
+            # Step 3: Security Guard
+            if not self.guard.allow(intent):
+                return {
+                    "answer": "I'm sorry, my security policy doesn't allow me to perform that action.", 
+                    "emotion": "protective"
+                }
+
+            # Step 4: Planning & Execution Loop
+            execution_results = []
+            plan = await self.planner.create_initial_plan(intent, context)
+
+            for attempt in range(3):
+                current_step = plan.get_next_step(execution_results)
+                
+                # Stop if no tools needed or plan is done
+                if not current_step or current_step.get("tool") == "none":
+                    break
+
+                tool_name = current_step.get("tool")
+                args = {}
+                
+                # Extract arguments if confidence is high enough
+                if self.extractor and confidence >= 0.6:
+                    args = await self.extractor.extract(tool_name, user_input, context)
+
+                try:
+                    # Execute Tool via Router
+                    tool_result = await asyncio.wait_for(
+                        self.router.execute(tool_name, args), 
+                        timeout=10.0
+                    )
+                    execution_results.append({"tool": tool_name, "result": tool_result})
+                    plan.update_step(tool_name, tool_result)
+
+                    # Reflection Phase
+                    reflection = await asyncio.wait_for(
+                        self.reflector.analyze(execution_results, intent, user_input, context),
+                        timeout=8.0
+                    )
+                    
+                    if reflection.get("complete", False):
+                        break
+                    
+                    plan.adjust(reflection.get("feedback"))
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool execution timed out: {tool_name}")
+                    execution_results.append({"tool": tool_name, "result": "Error: Tool timed out."})
+                    break
+                except Exception as e:
+                    logger.error(f"Tool execution error ({tool_name}): {e}")
+                    execution_results.append({"tool": tool_name, "result": f"Error: {str(e)}"})
+                    break
+
+            # Step 5: Final Synthesis
+            emotional_state = self.emotions.update(user_input, context)
+            
+            # Handle both sync and async synthesize methods safely
+            if asyncio.iscoroutinefunction(self.reasoner.synthesize):
+                final_output = await self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+            else:
+                final_output = self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+
+            # Normalize the output text using helper
+            reply_answer = self._extract_text(final_output)
+
+            # Step 6: Background Learning (Fire and Forget)
+            asyncio.create_task(self._learn(user_id, user_input, reply_answer, execution_results))
+
+            return {
+                "answer": reply_answer,
+                "emotion": emotional_state,
+                "plan": plan.to_list(),
+                "proactive_suggestions": self._generate_proactive_suggestions(context),
+                "metadata": {
+                    "intent": intent,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "location": context.get("location", "Unknown")
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Critical Brain Failure: {str(e)}", exc_info=True)
+            return {"answer": "I'm having trouble thinking clearly right now. Let's try again.", "error": True}
+
+    async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
+        """Gathers memory, preferences, and external context concurrently."""
+        
+        # Define the vector search task conditionally
+        vector_task = self.vector.search(text, limit=3) if self.vector else asyncio.sleep(0, result=[])
+
+        # Tasks tuple (fixed order)
+        tasks = [
+            self.persistent.get_entity("user_preferences"),
+            vector_task,
+            self._get_calendar_events()
+        ]
+        
+        # Gather all contexts safely; errors in one won't kill the others
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Unpack results safely
+        prefs = results[0] if not isinstance(results[0], Exception) else {}
+        semantic_mem = results[1] if not isinstance(results[1], Exception) else []
+        events = results[2] if not isinstance(results[2], Exception) else []
+
+        return {
+            "short_term": await self.persistent.recall_recent(limit=5), 
+            "persistent": prefs,
+            "semantic": semantic_mem,
+            "calendar": events,
+            "current_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S EST"),
+            "location": "Unknown Location" 
+        }
+
+    async def _get_calendar_events(self) -> List[Dict]:
+        if not self.calendar: 
+            return []
+        try:
+            return await asyncio.to_thread(self.calendar.list_upcoming_events, max_results=5)
+        except Exception as e:
+            logger.warning(f"Calendar fetch failed: {e}")
+            return []
+
+    async def _learn(self, user_id: str, query: str, output_text: str, results: List[Dict]):
+        """Background process to update memory and vectors."""
+        try:
+            # 1. Save interaction to persistent logs
+            await self.persistent.save(input_text=query, output_text=output_text)
+            
+            # 2. Extract new facts/knowledge
+            new_facts = await self.reflector.extract_knowledge(query, output_text, results)
+            
+            if new_facts and self.vector:
+                # 3. Update Vector DB
+                await self.vector.add_documents([f"{f['key']}: {f['value']}" for f in new_facts])
+                
+                # 4. Update Entity Store (Structured Memory)
+                # Check for method existence to prevent AttributeErrors
+                can_update = hasattr(self.persistent, "update_entity")
+                can_set = hasattr(self.persistent, "set_entity")
+
+                if not (can_update or can_set):
+                    # Prevent log spam if method is missing
+                    return
+
+                for fact in new_facts:
+                    if isinstance(fact, dict):
+                        key = fact.get("key")
+                        value = fact.get("value")
+                        if key and value:
+                            if can_update:
+                                await self.persistent.update_entity(key, value)
+                            elif can_set:
+                                await self.persistent.set_entity(key, value)
+
+        except Exception as e:
+            logger.error(f"Learning loop failed for user {user_id}: {e}")
+
+    def _generate_proactive_suggestions(self, context: Dict) -> List[str]:
+        """Placeholder logic for proactive suggestions."""
+        return []
+
+====================
+FILE: tools/tool_router.py
+====================
+import asyncio
+from twilio.rest import Client
+from ddgs import DDGS
+
+from backend.security.tool_guard import ToolGuard
+from backend.utils.logger import logger
+from backend.config.settings import settings
+from backend.tools.weather_tool import WeatherTool
+
+# Services
+from backend.services.email.email_service import EmailService
+from backend.services.shopping.shopping_agent import ShoppingAgent
+from backend.services.food.food_order_agent import FoodOrderAgent
+
+
+class ToolRouter:
+
+    def __init__(self):
+
+        self.twilio_client = None
+        self.guard = ToolGuard()
+        self.weather_tool = WeatherTool()   # FIX: initialize weather tool
+
+        # Twilio init
+        if settings.twilio_account_sid and settings.twilio_auth_token:
+            try:
+                sid = settings.twilio_account_sid.get_secret_value()
+                token = settings.twilio_auth_token.get_secret_value()
+                self.twilio_client = Client(sid, token)
+                logger.success("Twilio initialized")
+            except Exception:
+                logger.error("Twilio init failed", exc_info=True)
+        else:
+            logger.warning("Twilio disabled — missing credentials")
+
+    # --------------------------------------------------
+    # MAIN ENTRY
+    # --------------------------------------------------
+
+    async def execute(self, action: str, payload=None):
+
+        payload = payload or {}
+
+        logger.info(f"ToolRouter received action={action} payload={payload}")
+
+        if not self.guard.allow(action):
+            return {"error": "Tool blocked by safety policy"}
+
+        handlers = {
+            "weather": self.weather,
+            "web_search": self.web_search,
+            "restaurant_search": self.restaurant_search,
+            "order_food": self.order_food,
+            "food_suggest": self.food_suggest,
+            "shop_search": self.shop_search,
+            "send_sms": self.send_sms,
+            "reply_email": self.reply_email,
+            "chat": self.chat
+        }
+
+        handler = handlers.get(action)
+
+        if not handler:
+            return {"error": f"Unknown action {action}"}
+
+        try:
+
+            if asyncio.iscoroutinefunction(handler):
+                return await handler(payload)
+
+            return handler(payload)
+
+        except Exception as e:
+            logger.error(f"Tool execution failed: {action}", exc_info=True)
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------
+
+    async def weather(self, payload):
+
+        location = payload.get("location", "Toronto")
+
+        return await self.weather_tool.get_weather(location)
+
+    # --------------------------------------------------
+    # WEB SEARCH
+    # --------------------------------------------------
+
+    async def web_search(self, payload):
+
+        query = payload.get("query")
+
+        if not query:
+            return {"error": "Missing query"}
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=5))
+
+                formatted = []
+
+                for r in results:
+                    formatted.append({
+                        "title": r.get("title"),
+                        "snippet": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return formatted
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # RESTAURANT DISCOVERY
+    # --------------------------------------------------
+
+    async def restaurant_search(self, payload):
+
+        cuisine = payload.get("cuisine")
+        location = payload.get("location")
+
+        if not cuisine:
+            return {"error": "Cuisine required"}
+
+        query = f"best {cuisine} restaurants in {location or 'near me'}"
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=6))
+
+                restaurants = []
+
+                for r in results:
+
+                    restaurants.append({
+                        "name": r.get("title"),
+                        "description": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return restaurants
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # FOOD ORDERING
+    # --------------------------------------------------
+
+    async def order_food(self, payload):
+
+        agent = FoodOrderAgent()
+
+        return await agent.place_order(payload)
+
+    # --------------------------------------------------
+    # FOOD SUGGESTIONS
+    # --------------------------------------------------
+
+    async def food_suggest(self, payload):
+
+        cuisine = payload.get("cuisine")
+
+        agent = FoodOrderAgent()
+
+        return await agent.suggest(cuisine)
+
+    # --------------------------------------------------
+    # SHOPPING
+    # --------------------------------------------------
+
+    async def shop_search(self, payload):
+
+        agent = ShoppingAgent()
+
+        return await agent.search(payload.get("query"))
+
+    # --------------------------------------------------
+    # SMS
+    # --------------------------------------------------
+
+    def send_sms(self, payload):
+
+        if not self.twilio_client:
+            return {"error": "Twilio client not initialized"}
+
+        try:
+
+            msg = self.twilio_client.messages.create(
+                body=payload.get("body", ""),
+                from_=settings.twilio_number_primary,
+                to=payload.get("to") or settings.owner_number
+            )
+
+            return {"success": True, "sid": msg.sid}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # EMAIL
+    # --------------------------------------------------
+
+    async def reply_email(self, payload):
+
+        try:
+
+            service = EmailService()
+
+            result = await asyncio.to_thread(
+                service.send_email,
+                payload.get("to"),
+                payload.get("subject"),
+                payload.get("body")
+            )
+
+            return {"success": True, "result": result}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # CHAT FALLBACK
+    # --------------------------------------------------
+
+    def chat(self, payload):
+
+        return {
+            "action": "chat",
+            "message": payload.get("message", "")
+        }-e 
+=======================================
+
+FILE: ./api/twilio_webhook.py
+---------------------------------------
+# backend/api/twilio_webhook.py
+from fastapi import APIRouter, Request, Response, HTTPException
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+
+from backend.brain.master_brain import MasterBrain
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+router = APIRouter()
+brain = MasterBrain()
+
+@router.post("/sms")
+async def receive_sms(request: Request):
+    """
+    Hardened Twilio Webhook: Validates signatures and verifies the owner.
+    """
+    # 1. TWILIO SIGNATURE VALIDATION (Anti-Spoofing)
+    validator = RequestValidator(settings.twilio_auth_token.get_secret_value())
+    
+    url = str(request.url)
+    if "http://" in url and not url.startswith("http://localhost"):
+        url = url.replace("http://", "https://")  # Fixes proxy/GoDaddy SSL issues
+
+    form_data = await request.form()
+    signature = request.headers.get("X-Twilio-Signature")
+
+    if not signature or not validator.validate(url, dict(form_data), signature):
+        logger.error("🚨 SECURITY ALERT: Invalid Twilio Signature detected!")
+        return Response(content="Forbidden", status_code=403)
+
+    # 2. OWNER WHITELIST
+    sender = form_data.get("From")
+    incoming_msg = form_data.get("Body", "").strip()
+
+    if settings.owner_number and sender != settings.owner_number:
+        logger.warning(f"🚫 Unauthorized access attempt from {sender}")
+        return Response(content="Unauthorized", status_code=403)
+
+    logger.info(f"📲 Verified SMS from {sender}: {incoming_msg}")
+
+    # ────────────────────────────────────────────────
+    # FIXED: Build proper context so IntentRouter can detect tools
+    # ────────────────────────────────────────────────
+    context = {
+        "sender": sender,
+        "sentiment": 0.7,           # or compute real sentiment if you have it
+        # Let the brain's IntentRouter decide what tool (if any) to use
+    }
+
+    # Process with full brain (this will now trigger web_search for weather)
+    result = await brain.think(incoming_msg, context=context)
+
+    reply = result.get("reply_text", "Sorry, I couldn't process that right now.")
+
+    # Optional: log the full result for debugging
+    logger.info(f"AI generated reply: {reply[:200]}{'...' if len(reply) > 200 else ''}")
+
+    # 4. SECURE XML RESPONSE
+    twilio_resp = MessagingResponse()
+    
+    # Safety cap (Twilio segment limit ~1600 chars, but we keep it shorter)
+    safe_reply = (reply[:1200] + " [...] (message truncated)") if len(reply) > 1200 else reply
+    twilio_resp.message(safe_reply)
+
+    return Response(content=str(twilio_resp), media_type="application/xml")-e 
+=======================================
+
+FILE: ./api/sms_routes.py
+---------------------------------------
+# backend/api/sms_routes.py
+import logging
+import traceback
+from fastapi import APIRouter, Request, Form, HTTPException, Response
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+
+from backend.brain.master_brain import MasterBrain
+from backend.config.settings import settings
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Initialize the brain once so it maintains session state
+# Ensure MasterBrain() __init__ doesn't crash on startup
+try:
+    brain = MasterBrain()
+except Exception as e:
+    logger.error(f"FATAL: MasterBrain failed to initialize: {e}")
+    traceback.print_exc()
+    brain = None
+
+# Initialize Twilio Validator for security
+validator = RequestValidator(settings.twilio_auth_token.get_secret_value())
+
+@router.post("/webhook")
+async def sms_webhook(
+    request: Request,
+    Body: str = Form(...),
+    From: str = Form(...)
+):
+    # 1. ⭐ Security: Verify Twilio signature
+    form_data = await request.form()
+    url = str(request.url)
+    signature = request.headers.get("X-Twilio-Signature")
+
+    # Important: dict(form_data) is required for the validator
+    if not signature or not validator.validate(url, dict(form_data), signature):
+        logger.error(f"⚠️ Unauthorized webhook attempt from {From}")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    logger.info(f"📩 SMS from {From}: {Body}")
+
+    # 2. ⭐ Safety: Truncate very long messages
+    if len(Body) > 1600:
+        Body = Body[:1600] + "..."
+
+    # Default fallback message
+    reply_text = "I'm having trouble thinking right now. Please try again."
+
+    # 3. ⭐ Process with MasterBrain
+    if not brain:
+        reply_text = "System Error: Brain not initialized."
+    else:
+        try:
+            # Request the brain to process the query
+            # We use process_query to match the superior MasterBrain architecture
+            brain_response = await brain.process_query(Body, user_id=From)
+            
+            # Extract the main text answer
+            reply_text = brain_response.get("answer", "I processed that, but have no words.")
+            
+            # Append proactive suggestions if the brain generated any
+            suggestions = brain_response.get("proactive_suggestions", [])
+            if suggestions and isinstance(suggestions, list):
+                reply_text += "\n\n💡 " + "\n💡 ".join(suggestions)
+
+        except Exception as e:
+            # THIS IS KEY: It prints the EXACT error to your terminal so you can fix it
+            print("\n" + "!"*20 + " BRAIN CRASH DETECTED " + "!"*20)
+            traceback.print_exc() 
+            print("!"*62 + "\n")
+            
+            logger.error(f"❌ Brain execution error: {e}")
+            reply_text = "Something went wrong on my end — let's try again?"
+
+    logger.info(f"🤖 AI Reply to {From}: {reply_text[:100]}...")
+
+    # 4. ⭐ Format TwiML response for Twilio
+    twiml = MessagingResponse()
+    twiml.message(reply_text)
+
+    # Return as application/xml so Twilio recognizes the response
+    return Response(
+        content=str(twiml), 
+        media_type="application/xml"
+    )
+-e 
+=======================================
+
+FILE: ./api/email_routes.py
+---------------------------------------
+from fastapi import APIRouter
+from backend.services.email.email_pipeline import EmailPipeline
+
+router = APIRouter()
+
+pipeline = EmailPipeline()
+
+
+@router.get("/unread")
+def unread_emails():
+    return pipeline.process_new_email()-e 
+=======================================
+
+FILE: ./api/__init__.py
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./requirements.txt
+---------------------------------------
+fastapi
+uvicorn
+pytest
+pytest-asyncio
+sqlalchemy
+python-dotenv
+google-auth
+google-auth-oauthlib
+google-api-python-client
+twilio
+playwright
+sentence-transformers
+openai
+requests
+-e 
+=======================================
+
+FILE: ./config/settings.py
+---------------------------------------
+# backend/config/settings.py
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr
+import os
+from pathlib import Path
+
+
+class Settings(BaseSettings):
+    # ── Critical ────────────────────────────────────────────────────────────────
+    openai_api_key: SecretStr | None = Field(default=None)
+    tavily_api_key: SecretStr | None = Field(default=None)
+    twilio_account_sid: SecretStr | None = Field(default=None)
+    twilio_auth_token: SecretStr | None = Field(default=None)
+    twilio_number_primary: str | None = Field(default=None)
+    my_phone_number: str | None = Field(default=None)
+    owner_number: str | None = Field(default=None)
+    stripe_secret_key: SecretStr | None = Field(default=None)
+    stripe_publishable_key: str | None = Field(default=None)
+
+    # Google / Gmail
+    google_client_secrets_path: str = Field(
+        default_factory=lambda: str(Path.home() / "ai-copilot/backend/secrets/credentials.json")
+    )
+
+    # Optional services
+    polygon_api_key: SecretStr | None = Field(default=None)
+    plaid_client_id: str | None = Field(default=None)
+    plaid_secret: SecretStr | None = Field(default=None)
+    plaid_env: str = Field(default="sandbox")
+
+    # Paths
+    secrets_dir: str = Field(
+        default_factory=lambda: str(Path.home() / "ai-copilot/backend/secrets")
+    )
+    log_dir: str = Field(
+        default_factory=lambda: str(Path.home() / "ai-copilot/backend/secrets/logs")
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=os.path.expanduser("~/ai-copilot/backend/secrets/.env"),
+        env_file_encoding="utf-8",
+        env_nested_delimiter="__",
+        extra="ignore",
+        case_sensitive=False,
+        env_prefix="",
+    )
+
+    def ensure_dirs(self):
+        """Create directories if they don't exist."""
+        for d in [self.secrets_dir, self.log_dir]:
+            os.makedirs(d, exist_ok=True)
+
+    def check_required(self):
+        """Raise clear error if critical keys are missing."""
+        missing = []
+        if not self.openai_api_key:
+            missing.append("OPENAI_API_KEY")
+        if not self.tavily_api_key:
+            missing.append("TAVILY_API_KEY") # Added to validation
+        if not self.twilio_account_sid or not self.twilio_auth_token:
+            missing.append("Twilio credentials (ACCOUNT_SID + AUTH_TOKEN)")
+        if missing:
+            raise RuntimeError(
+                f"Missing required configuration:\n  • " + "\n  • ".join(missing) +
+                "\n\nPlease check ~/ai-copilot/backend/secrets/.env"
+            )
+
+
+# Create global instance
+settings = Settings()
+settings.ensure_dirs()
+
+# Optional: validate critical keys right away
+# settings.check_required()
+-e 
+=======================================
+
+FILE: ./conftest.py
+---------------------------------------
+import pytest
+import asyncio
+
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()-e 
+=======================================
+
+FILE: ./cron/daily_briefing.py
+---------------------------------------
+# backend/cron/daily_briefing.py
+import asyncio
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from backend.brain.master_brain import MasterBrain
+from backend.services.email.email_pipeline import EmailPipeline
+from backend.tools.tool_router import ToolRouter
+from backend.config.settings import settings
+from backend.utils.logger import logger
+
+async def run_morning_briefing():
+    """The automated 8:00 AM routine."""
+    logger.info("🌅 Starting Daily Morning Briefing...")
+    
+    brain = MasterBrain()
+    email_pipe = EmailPipeline()
+    router = ToolRouter()
+    
+    # 1. Process Emails (Trash spam, find important ones)
+    email_data = email_pipe.process_new_email()
+    
+    # 2. Get AI Insights (Calendar + Proactive Plan)
+    # We send a 'dummy' message to trigger the Brain's planning logic
+    brain_result = await brain.think("Give me my morning briefing.")
+    
+    # 3. Construct the SMS
+    agenda = "\n".join(brain_result.get("proactive_plan", ["No events today."]))
+    email_summary = f"📧 Emails: {email_data['important_count']} important messages."
+    
+    final_sms = (
+        f"☀️ GOOD MORNING CO-PILOT\n\n"
+        f"{agenda}\n\n"
+        f"{email_summary}\n"
+        f"Check your inbox for details."
+    )
+    
+    # 4. Send via Twilio
+    router.execute("send_sms", {
+        "to": settings.owner_number,
+        "body": final_sms
+    })
+    logger.success("Morning Briefing SMS sent!")
+
+def start_scheduler():
+    scheduler = AsyncIOScheduler()
+    # Schedule for 8:00 AM every day
+    scheduler.add_job(run_morning_briefing, 'cron', hour=8, minute=0)
+    scheduler.start()
+    logger.info("Scheduler started: Daily Briefing set for 08:00")
+
+if __name__ == "__main__":
+    # For manual testing
+    asyncio.run(run_morning_briefing())
+-e 
+=======================================
+
+FILE: ./tasks/scheduler_tasks.py
+---------------------------------------
+import asyncio
+import schedule
+import time
+
+from backend.brain.master_brain import MasterBrain
+from backend.services.email.email_pipeline import EmailPipeline
+
+brain = MasterBrain()
+pipeline = EmailPipeline()
+
+
+async def autonomous_cycle():
+
+    print("🤖 Running autonomous AI cycle...")
+
+    # Observe world
+    email_summary = pipeline.process_new_email()
+
+    # Think
+    result = await brain.think(
+        "autonomous_system_cycle",
+        {
+            "source": "scheduler",
+            "emails": email_summary
+        }
+    )
+
+    print("🧠 Brain Decision:", result)
+
+
+def start_scheduler():
+
+    print("✅ AI Scheduler Started")
+
+async def loop_runner():
+    MAX_CYCLES = 1000
+
+    for _ in range(MAX_CYCLES):
+        try:
+            await autonomous_cycle()
+        except Exception as e:
+            print("Scheduler error:", e)
+
+        await asyncio.sleep(600)
+
+
+if __name__ == "__main__":
+    start_scheduler()-e 
+=======================================
+
+FILE: ./tasks/autonomous_cycle.py
+---------------------------------------
+
+import asyncio
+from backend.brain.master_brain import MasterBrain
+from backend.services.email.email_pipeline import EmailPipeline
+
+
+brain = MasterBrain()
+pipeline = EmailPipeline()
+
+
+async def autonomous_cycle():
+
+    print("🤖 Autonomous AI cycle running...")
+
+    email_summary = pipeline.process_new_email()
+
+    result = await brain.think(
+        "system_autonomous_cycle",
+        {
+            "source": "scheduler",
+            "emails": email_summary
+        }
+    )
+
+    print("🧠 AI Decision:", result)
+
+
+async def loop_runner():
+
+    while True:
+
+        try:
+            await autonomous_cycle()
+
+        except Exception as e:
+            print("Cycle error:", e)
+
+        # Run every 10 minutes
+        await asyncio.sleep(600)
+
+
+if name == "main":
+
+    asyncio.run(loop_runner())
+
+-e 
+=======================================
+
+FILE: ./backend_logic_dump.txt
+---------------------------------------
+-e 
+=======================================
+
+FILE: ./__init__.py
+---------------------------------------
+-e 
+=======================================
+

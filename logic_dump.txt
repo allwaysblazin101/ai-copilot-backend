@@ -1,0 +1,1456 @@
+
+====================
+FILE: brain/intent_classifier.py
+====================
+# backend/brain/intent_classifier.py
+from openai import AsyncOpenAI
+from backend.config.settings import settings
+import json
+
+class IntentClassifier:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+
+    async def classify(self, message: str, context: dict = None) -> dict:
+        prompt = f"""
+Classify this user message: "{message}"
+
+Possible intents (pick ONE):
+- conversation: casual chat, greetings, questions about self (name, favorite food, likes, allergies)
+- web_search: weather, temperature, forecast, news, price, research, "is it raining", "what's the weather"
+- order_food: food, restaurant, order, pizza, delivery, lunch, dinner, eat
+- calendar_event: schedule, meeting, add event, book time, calendar, reminder
+- other: anything else
+
+Return ONLY JSON:
+{{
+  "intent": "one_of_the_above",
+  "confidence": 0.0_to_1.0,
+  "reason": "one sentence why"
+}}
+"""
+
+        try:
+            resp = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=150,
+                response_format={"type": "json_object"}
+            )
+            return json.loads(resp.choices[0].message.content.strip())
+        except Exception:
+            return {"intent": "conversation", "confidence": 0.5, "reason": "fallback due to error"}
+====================
+FILE: tools/weather_tool.py
+====================
+import httpx
+
+
+class WeatherTool:
+
+    async def get_weather(self, location="Toronto"):
+
+        coords = await self._geocode(location)
+
+        if not coords:
+            return {"error": "Location not found"}
+
+        lat = coords["lat"]
+        lon = coords["lon"]
+
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&current_weather=true"
+        )
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url)
+
+        data = r.json()["current_weather"]
+
+        return {
+            "location": location,
+            "temperature_c": data["temperature"],
+            "wind_kph": data["windspeed"],
+            "wind_direction": data["winddirection"],
+            "time": data["time"]
+        }
+
+    async def _geocode(self, location):
+
+        url = "https://geocoding-api.open-meteo.com/v1/search"
+
+        params = {
+            "name": location,
+            "count": 1
+        }
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params=params)
+
+        data = r.json()
+
+        if "results" not in data:
+            return None
+
+        result = data["results"][0]
+
+        return {
+            "lat": result["latitude"],
+            "lon": result["longitude"]
+        }
+====================
+FILE: tools/registry.py
+====================
+# backend/tools/registry.py
+
+TOOLS_REGISTRY = {}
+
+
+def register_tool(name, description, function=None):
+    """
+    Register tool function
+    """
+
+    def decorator(func):
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": func
+        }
+        return func
+
+    if function:
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": function
+        }
+        return function
+
+    return decorator
+
+
+def get_tool(name):
+    return TOOLS_REGISTRY.get(name)
+
+
+def list_tools():
+    return list(TOOLS_REGISTRY.keys())
+====================
+FILE: brain/master_brain.py
+====================
+# backend/brain/master_brain.py
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List, Optional
+
+# Core AI modules
+from backend.brain.emotional_model import EmotionalModel
+from backend.brain.behavior_predictor import BehaviorPredictor
+from backend.brain.reasoning import ReasoningModule
+from backend.brain.planner import Planner
+from backend.brain.reflection import ReflectionModule
+from backend.brain.intent_classifier import IntentClassifier
+
+# Security & Tools
+from backend.security.logging_system import AILogger
+from backend.security.policy_guard import PolicyGuard
+from backend.tools.tool_router import ToolRouter
+from backend.tools.argument_extractor import ArgumentExtractor
+
+# Memory
+from backend.memory.memory_store import MemoryStore
+from backend.memory.persistent_memory import PersistentMemoryStore
+from backend.memory.vector_memory import VectorMemory
+
+# Services
+from backend.services.google.google_auth import GoogleAuth
+from backend.services.calendar.calendar_service import CalendarService
+from backend.services.food.food_order_agent import FoodOrderAgent
+from backend.services.payment.stripe_service import StripeService
+
+from backend.utils.logger import logger
+
+class MasterBrain:
+    def __init__(self):
+        self.google_auth = GoogleAuth()
+        # Initialize Calendar only if auth is valid
+        self.calendar = CalendarService(self.google_auth.credentials) if self.google_auth.credentials else None
+        self.stripe = StripeService()
+        self.food_agent = FoodOrderAgent()
+
+        self.reasoner = ReasoningModule()
+        self.planner = Planner()
+        self.reflector = ReflectionModule()
+        self.intent_engine = IntentClassifier()
+        self.extractor = ArgumentExtractor()
+        
+        self.behavior = BehaviorPredictor()
+        self.emotions = EmotionalModel()
+        self.short_term = MemoryStore()
+        self.persistent = PersistentMemoryStore()
+        self.vector = VectorMemory()
+
+        # Tool Router Integration
+        self.router = ToolRouter()
+        self.guard = PolicyGuard()
+        self.security_logger = AILogger()
+
+    @staticmethod
+    def _extract_text(payload: Any) -> str:
+        """Safely extracts text string from a Dict, Object, or String."""
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("answer", str(payload))
+        # Fallback for object attributes
+        return getattr(payload, "text", str(payload))
+
+    async def process_query(self, user_input: str, user_id: str = "default_user") -> Dict[str, Any]:
+        try:
+            # Step 1: Context Assembly
+            context = await self._assemble_context(user_input, user_id)
+            
+            # Step 2: Intent Classification
+            intent_result = await self.intent_engine.classify(user_input, context)
+            intent = intent_result.get("intent", "conversation")
+            confidence = intent_result.get("confidence", 0.0)
+            context.update({"intent": intent, "intent_confidence": confidence})
+
+            # Step 3: Security Guard
+            if not self.guard.allow(intent):
+                return {
+                    "answer": "I'm sorry, my security policy doesn't allow me to perform that action.", 
+                    "emotion": "protective"
+                }
+
+            # Step 4: Planning & Execution Loop
+            execution_results = []
+            plan = await self.planner.create_initial_plan(intent, context)
+
+            for attempt in range(3):
+                current_step = plan.get_next_step(execution_results)
+                
+                # Stop if no tools needed or plan is done
+                if not current_step or current_step.get("tool") == "none":
+                    break
+
+                tool_name = current_step.get("tool")
+                args = {}
+                
+                # Extract arguments if confidence is high enough
+                if self.extractor and confidence > 0.6:
+                    args = await self.extractor.extract(tool_name, user_input, context)
+
+                try:
+                    # Execute Tool via Router
+                    tool_result = await asyncio.wait_for(
+                        self.router.execute(tool_name, args), 
+                        timeout=10.0
+                    )
+                    execution_results.append({"tool": tool_name, "result": tool_result})
+                    plan.update_step(tool_name, tool_result)
+
+                    # Reflection Phase
+                    reflection = await asyncio.wait_for(
+                        self.reflector.analyze(execution_results, intent, user_input, context),
+                        timeout=8.0
+                    )
+                    
+                    if reflection.get("complete", False):
+                        break
+                    
+                    plan.adjust(reflection.get("feedback"))
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool execution timed out: {tool_name}")
+                    execution_results.append({"tool": tool_name, "result": "Error: Tool timed out."})
+                    break
+                except Exception as e:
+                    logger.error(f"Tool execution error ({tool_name}): {e}")
+                    execution_results.append({"tool": tool_name, "result": f"Error: {str(e)}"})
+                    break
+
+            # Step 5: Final Synthesis
+            emotional_state = self.emotions.update(user_input, context)
+            
+            # Handle both sync and async synthesize methods safely
+            if asyncio.iscoroutinefunction(self.reasoner.synthesize):
+                final_output = await self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+            else:
+                final_output = self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+
+            # Normalize the output text using helper
+            reply_answer = self._extract_text(final_output)
+
+            # Step 6: Background Learning (Fire and Forget)
+            asyncio.create_task(self._learn(user_id, user_input, reply_answer, execution_results))
+
+            return {
+                "answer": reply_answer,
+                "emotion": emotional_state,
+                "plan": plan.to_list(),
+                "proactive_suggestions": self._generate_proactive_suggestions(context),
+                "metadata": {
+                    "intent": intent,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "location": context.get("location", "Unknown")
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Critical Brain Failure: {str(e)}", exc_info=True)
+            return {"answer": "I'm having trouble thinking clearly right now. Let's try again.", "error": True}
+
+    async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
+        """Gathers memory, preferences, and external context concurrently."""
+        
+        # Define the vector search task conditionally
+        vector_task = self.vector.search(text, limit=3) if self.vector else asyncio.sleep(0, result=[])
+
+        # Tasks tuple (fixed order)
+        tasks = [
+            self.persistent.get_entity("user_preferences"),
+            vector_task,
+            self._get_calendar_events()
+        ]
+        
+        # Gather all contexts safely; errors in one won't kill the others
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Unpack results safely
+        prefs = results[0] if not isinstance(results[0], Exception) else {}
+        semantic_mem = results[1] if not isinstance(results[1], Exception) else []
+        events = results[2] if not isinstance(results[2], Exception) else []
+
+        return {
+            "short_term": await self.persistent.recall_recent(limit=5), 
+            "persistent": prefs,
+            "semantic": semantic_mem,
+            "calendar": events,
+            "current_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S EST"),
+            "location": "Unknown Location" 
+        }
+
+    async def _get_calendar_events(self) -> List[Dict]:
+        if not self.calendar: 
+            return []
+        try:
+            return await asyncio.to_thread(self.calendar.list_upcoming_events, max_results=5)
+        except Exception as e:
+            logger.warning(f"Calendar fetch failed: {e}")
+            return []
+
+    async def _learn(self, user_id: str, query: str, output_text: str, results: List[Dict]):
+        """Background process to update memory and vectors."""
+        try:
+            # 1. Save interaction to persistent logs
+            await self.persistent.save(input_text=query, output_text=output_text)
+            
+            # 2. Extract new facts/knowledge
+            new_facts = await self.reflector.extract_knowledge(query, output_text, results)
+            
+            if new_facts and self.vector:
+                # 3. Update Vector DB
+                await self.vector.add_documents([f"{f['key']}: {f['value']}" for f in new_facts])
+                
+                # 4. Update Entity Store (Structured Memory)
+                # Check for method existence to prevent AttributeErrors
+                can_update = hasattr(self.persistent, "update_entity")
+                can_set = hasattr(self.persistent, "set_entity")
+
+                if not (can_update or can_set):
+                    # Prevent log spam if method is missing
+                    return
+
+                for fact in new_facts:
+                    if isinstance(fact, dict):
+                        key = fact.get("key")
+                        value = fact.get("value")
+                        if key and value:
+                            if can_update:
+                                await self.persistent.update_entity(key, value)
+                            elif can_set:
+                                await self.persistent.set_entity(key, value)
+
+        except Exception as e:
+            logger.error(f"Learning loop failed for user {user_id}: {e}")
+
+    def _generate_proactive_suggestions(self, context: Dict) -> List[str]:
+        """Placeholder logic for proactive suggestions."""
+        return []
+
+====================
+FILE: tools/tool_router.py
+====================
+import asyncio
+from twilio.rest import Client
+from ddgs import DDGS
+
+from backend.security.tool_guard import ToolGuard
+from backend.utils.logger import logger
+from backend.config.settings import settings
+from backend.tools.weather_tool import WeatherTool
+
+# Services
+from backend.services.email.email_service import EmailService
+from backend.services.shopping.shopping_agent import ShoppingAgent
+from backend.services.food.food_order_agent import FoodOrderAgent
+
+
+class ToolRouter:
+
+    def __init__(self):
+
+        self.twilio_client = None
+        self.guard = ToolGuard()
+        self.weather_tool = WeatherTool()   # FIX: initialize weather tool
+
+        # Twilio init
+        if settings.twilio_account_sid and settings.twilio_auth_token:
+            try:
+                sid = settings.twilio_account_sid.get_secret_value()
+                token = settings.twilio_auth_token.get_secret_value()
+                self.twilio_client = Client(sid, token)
+                logger.success("Twilio initialized")
+            except Exception:
+                logger.error("Twilio init failed", exc_info=True)
+        else:
+            logger.warning("Twilio disabled — missing credentials")
+
+    # --------------------------------------------------
+    # MAIN ENTRY
+    # --------------------------------------------------
+
+    async def execute(self, action: str, payload=None):
+
+        payload = payload or {}
+
+        logger.info(f"ToolRouter received action={action} payload={payload}")
+
+        if not self.guard.allow(action):
+            return {"error": "Tool blocked by safety policy"}
+
+        handlers = {
+            "weather": self.weather,
+            "web_search": self.web_search,
+            "restaurant_search": self.restaurant_search,
+            "order_food": self.order_food,
+            "food_suggest": self.food_suggest,
+            "shop_search": self.shop_search,
+            "send_sms": self.send_sms,
+            "reply_email": self.reply_email,
+            "chat": self.chat
+        }
+
+        handler = handlers.get(action)
+
+        if not handler:
+            return {"error": f"Unknown action {action}"}
+
+        try:
+
+            if asyncio.iscoroutinefunction(handler):
+                return await handler(payload)
+
+            return handler(payload)
+
+        except Exception as e:
+            logger.error(f"Tool execution failed: {action}", exc_info=True)
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------
+
+    async def weather(self, payload):
+
+        location = payload.get("location", "Toronto")
+
+        return await self.weather_tool.get_weather(location)
+
+    # --------------------------------------------------
+    # WEB SEARCH
+    # --------------------------------------------------
+
+    async def web_search(self, payload):
+
+        query = payload.get("query")
+
+        if not query:
+            return {"error": "Missing query"}
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=5))
+
+                formatted = []
+
+                for r in results:
+                    formatted.append({
+                        "title": r.get("title"),
+                        "snippet": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return formatted
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # RESTAURANT DISCOVERY
+    # --------------------------------------------------
+
+    async def restaurant_search(self, payload):
+
+        cuisine = payload.get("cuisine")
+        location = payload.get("location")
+
+        if not cuisine:
+            return {"error": "Cuisine required"}
+
+        query = f"best {cuisine} restaurants in {location or 'near me'}"
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=6))
+
+                restaurants = []
+
+                for r in results:
+
+                    restaurants.append({
+                        "name": r.get("title"),
+                        "description": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return restaurants
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # FOOD ORDERING
+    # --------------------------------------------------
+
+    async def order_food(self, payload):
+
+        agent = FoodOrderAgent()
+
+        return await agent.place_order(payload)
+
+    # --------------------------------------------------
+    # FOOD SUGGESTIONS
+    # --------------------------------------------------
+
+    async def food_suggest(self, payload):
+
+        cuisine = payload.get("cuisine")
+
+        agent = FoodOrderAgent()
+
+        return await agent.suggest(cuisine)
+
+    # --------------------------------------------------
+    # SHOPPING
+    # --------------------------------------------------
+
+    async def shop_search(self, payload):
+
+        agent = ShoppingAgent()
+
+        return await agent.search(payload.get("query"))
+
+    # --------------------------------------------------
+    # SMS
+    # --------------------------------------------------
+
+    def send_sms(self, payload):
+
+        if not self.twilio_client:
+            return {"error": "Twilio client not initialized"}
+
+        try:
+
+            msg = self.twilio_client.messages.create(
+                body=payload.get("body", ""),
+                from_=settings.twilio_number_primary,
+                to=payload.get("to") or settings.owner_number
+            )
+
+            return {"success": True, "sid": msg.sid}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # EMAIL
+    # --------------------------------------------------
+
+    async def reply_email(self, payload):
+
+        try:
+
+            service = EmailService()
+
+            result = await asyncio.to_thread(
+                service.send_email,
+                payload.get("to"),
+                payload.get("subject"),
+                payload.get("body")
+            )
+
+            return {"success": True, "result": result}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # CHAT FALLBACK
+    # --------------------------------------------------
+
+    def chat(self, payload):
+
+        return {
+            "action": "chat",
+            "message": payload.get("message", "")
+        }
+====================
+FILE: main.py
+====================
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+logger.info("Starting AI Companion API v1.0")
+logger.debug("Environment configuration loaded")
+# Load .env with absolute path
+env_path = os.path.join(os.path.dirname(__file__), "secrets", ".env")
+loaded = load_dotenv(env_path)
+print(f"[MAIN] .env loaded from {env_path}: {loaded}")
+
+
+
+app = FastAPI(
+    title="AI Companion",
+    version="1.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=True
+)
+
+# Load routes with detailed debug
+print("[MAIN] Starting route loading...")
+
+try:
+    # AI routes
+    print("[MAIN] Loading AI routes...")
+    from backend.services.ai.ai_service import router as ai_router
+    app.include_router(ai_router, prefix="/ai", tags=["AI"])
+    print("[MAIN] AI routes included")
+
+    # Email routes
+    print("[MAIN] Loading email routes...")
+    from backend.api.email_routes import router as email_router
+    app.include_router(email_router, prefix="/email", tags=["Email"])
+    print("[MAIN] Email routes included")
+
+    # SMS routes – webhook is here
+    print("[MAIN] Loading SMS routes...")
+    from backend.api.sms_routes import router as sms_router
+    app.include_router(sms_router, prefix="/sms", tags=["SMS"])
+    print("[MAIN] SMS routes included – webhook should be at /sms/webhook")
+
+    print("[MAIN] All routes loaded successfully!")
+
+except ImportError as ie:
+    print(f"[MAIN] IMPORT ERROR: {ie}")
+    print("  - Check file paths, spelling, and folder structure")
+except Exception as e:
+    print(f"[MAIN] GENERAL ROUTE LOAD ERROR: {e}")
+
+@app.get("/")
+def root():
+    return {"status": "online", "service": "AI Companion Core"}
+====================
+FILE: api/sms_routes.py
+====================
+# backend/api/sms_routes.py
+import logging
+import traceback
+from fastapi import APIRouter, Request, Form, HTTPException, Response
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+
+from backend.brain.master_brain import MasterBrain
+from backend.config.settings import settings
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Initialize the brain once so it maintains session state
+# Ensure MasterBrain() __init__ doesn't crash on startup
+try:
+    brain = MasterBrain()
+except Exception as e:
+    logger.error(f"FATAL: MasterBrain failed to initialize: {e}")
+    traceback.print_exc()
+    brain = None
+
+# Initialize Twilio Validator for security
+validator = RequestValidator(settings.twilio_auth_token.get_secret_value())
+
+@router.post("/webhook")
+async def sms_webhook(
+    request: Request,
+    Body: str = Form(...),
+    From: str = Form(...)
+):
+    # 1. ⭐ Security: Verify Twilio signature
+    form_data = await request.form()
+    url = str(request.url)
+    signature = request.headers.get("X-Twilio-Signature")
+
+    # Important: dict(form_data) is required for the validator
+    if not signature or not validator.validate(url, dict(form_data), signature):
+        logger.error(f"⚠️ Unauthorized webhook attempt from {From}")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    logger.info(f"📩 SMS from {From}: {Body}")
+
+    # 2. ⭐ Safety: Truncate very long messages
+    if len(Body) > 1600:
+        Body = Body[:1600] + "..."
+
+    # Default fallback message
+    reply_text = "I'm having trouble thinking right now. Please try again."
+
+    # 3. ⭐ Process with MasterBrain
+    if not brain:
+        reply_text = "System Error: Brain not initialized."
+    else:
+        try:
+            # Request the brain to process the query
+            # We use process_query to match the superior MasterBrain architecture
+            brain_response = await brain.process_query(Body, user_id=From)
+            
+            # Extract the main text answer
+            reply_text = brain_response.get("answer", "I processed that, but have no words.")
+            
+            # Append proactive suggestions if the brain generated any
+            suggestions = brain_response.get("proactive_suggestions", [])
+            if suggestions and isinstance(suggestions, list):
+                reply_text += "\n\n💡 " + "\n💡 ".join(suggestions)
+
+        except Exception as e:
+            # THIS IS KEY: It prints the EXACT error to your terminal so you can fix it
+            print("\n" + "!"*20 + " BRAIN CRASH DETECTED " + "!"*20)
+            traceback.print_exc() 
+            print("!"*62 + "\n")
+            
+            logger.error(f"❌ Brain execution error: {e}")
+            reply_text = "Something went wrong on my end — let's try again?"
+
+    logger.info(f"🤖 AI Reply to {From}: {reply_text[:100]}...")
+
+    # 4. ⭐ Format TwiML response for Twilio
+    twiml = MessagingResponse()
+    twiml.message(reply_text)
+
+    # Return as application/xml so Twilio recognizes the response
+    return Response(
+        content=str(twiml), 
+        media_type="application/xml"
+    )
+
+====================
+FILE: api/twilio_webhook.py
+====================
+# backend/api/twilio_webhook.py
+from fastapi import APIRouter, Request, Response, HTTPException
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+
+from backend.brain.master_brain import MasterBrain
+from backend.utils.logger import logger
+from backend.config.settings import settings
+
+router = APIRouter()
+brain = MasterBrain()
+
+@router.post("/sms")
+async def receive_sms(request: Request):
+    """
+    Hardened Twilio Webhook: Validates signatures and verifies the owner.
+    """
+    # 1. TWILIO SIGNATURE VALIDATION (Anti-Spoofing)
+    validator = RequestValidator(settings.twilio_auth_token.get_secret_value())
+    
+    url = str(request.url)
+    if "http://" in url and not url.startswith("http://localhost"):
+        url = url.replace("http://", "https://")  # Fixes proxy/GoDaddy SSL issues
+
+    form_data = await request.form()
+    signature = request.headers.get("X-Twilio-Signature")
+
+    if not signature or not validator.validate(url, dict(form_data), signature):
+        logger.error("🚨 SECURITY ALERT: Invalid Twilio Signature detected!")
+        return Response(content="Forbidden", status_code=403)
+
+    # 2. OWNER WHITELIST
+    sender = form_data.get("From")
+    incoming_msg = form_data.get("Body", "").strip()
+
+    if settings.owner_number and sender != settings.owner_number:
+        logger.warning(f"🚫 Unauthorized access attempt from {sender}")
+        return Response(content="Unauthorized", status_code=403)
+
+    logger.info(f"📲 Verified SMS from {sender}: {incoming_msg}")
+
+    # ────────────────────────────────────────────────
+    # FIXED: Build proper context so IntentRouter can detect tools
+    # ────────────────────────────────────────────────
+    context = {
+        "sender": sender,
+        "sentiment": 0.7,           # or compute real sentiment if you have it
+        # Let the brain's IntentRouter decide what tool (if any) to use
+    }
+
+    # Process with full brain (this will now trigger web_search for weather)
+    result = await brain.think(incoming_msg, context=context)
+
+    reply = result.get("reply_text", "Sorry, I couldn't process that right now.")
+
+    # Optional: log the full result for debugging
+    logger.info(f"AI generated reply: {reply[:200]}{'...' if len(reply) > 200 else ''}")
+
+    # 4. SECURE XML RESPONSE
+    twilio_resp = MessagingResponse()
+    
+    # Safety cap (Twilio segment limit ~1600 chars, but we keep it shorter)
+    safe_reply = (reply[:1200] + " [...] (message truncated)") if len(reply) > 1200 else reply
+    twilio_resp.message(safe_reply)
+
+    return Response(content=str(twilio_resp), media_type="application/xml")
+====================
+FILE: tools/registry.py
+====================
+# backend/tools/registry.py
+
+TOOLS_REGISTRY = {}
+
+
+def register_tool(name, description, function=None):
+    """
+    Register tool function
+    """
+
+    def decorator(func):
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": func
+        }
+        return func
+
+    if function:
+        TOOLS_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": function
+        }
+        return function
+
+    return decorator
+
+
+def get_tool(name):
+    return TOOLS_REGISTRY.get(name)
+
+
+def list_tools():
+    return list(TOOLS_REGISTRY.keys())
+    
+
+from tools import weather_tool, amazon_tool, walmart_tool, browser_tool, kitchenhub_tool
+
+====================
+FILE: tools/weather_tool.py
+====================
+import httpx
+
+
+class WeatherTool:
+
+    async def get_weather(self, location="Toronto"):
+
+        coords = await self._geocode(location)
+
+        if not coords:
+            return {"error": "Location not found"}
+
+        lat = coords["lat"]
+        lon = coords["lon"]
+
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&current_weather=true"
+        )
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url)
+
+        data = r.json()["current_weather"]
+
+        return {
+            "location": location,
+            "temperature_c": data["temperature"],
+            "wind_kph": data["windspeed"],
+            "wind_direction": data["winddirection"],
+            "time": data["time"]
+        }
+
+    async def _geocode(self, location):
+
+        url = "https://geocoding-api.open-meteo.com/v1/search"
+
+        params = {
+            "name": location,
+            "count": 1
+        }
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params=params)
+
+        data = r.json()
+
+        if "results" not in data:
+            return None
+
+        result = data["results"][0]
+
+        return {
+            "lat": result["latitude"],
+            "lon": result["longitude"]
+        }
+        
+        weather_inst = WeatherTool()
+
+@register_tool("weather", "Get current weather for a location")
+async def get_weather_tool(location="Toronto"):
+    return await weather_inst.get_weather(location)
+====================
+FILE: brain/master_brain.py
+====================
+# backend/brain/master_brain.py
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List, Optional
+
+# Core AI modules
+from backend.brain.emotional_model import EmotionalModel
+from backend.brain.behavior_predictor import BehaviorPredictor
+from backend.brain.reasoning import ReasoningModule
+from backend.brain.planner import Planner
+from backend.brain.reflection import ReflectionModule
+from backend.brain.intent_classifier import IntentClassifier
+
+# Security & Tools
+from backend.security.logging_system import AILogger
+from backend.security.policy_guard import PolicyGuard
+from backend.tools.tool_router import ToolRouter
+from backend.tools.argument_extractor import ArgumentExtractor
+
+# Memory
+from backend.memory.memory_store import MemoryStore
+from backend.memory.persistent_memory import PersistentMemoryStore
+from backend.memory.vector_memory import VectorMemory
+
+# Services
+from backend.services.google.google_auth import GoogleAuth
+from backend.services.calendar.calendar_service import CalendarService
+from backend.services.food.food_order_agent import FoodOrderAgent
+from backend.services.payment.stripe_service import StripeService
+
+from backend.utils.logger import logger
+
+class MasterBrain:
+    def __init__(self):
+        self.google_auth = GoogleAuth()
+        # Initialize Calendar only if auth is valid
+        self.calendar = CalendarService(self.google_auth.credentials) if self.google_auth.credentials else None
+        self.stripe = StripeService()
+        self.food_agent = FoodOrderAgent()
+
+        self.reasoner = ReasoningModule()
+        self.planner = Planner()
+        self.reflector = ReflectionModule()
+        self.intent_engine = IntentClassifier()
+        self.extractor = ArgumentExtractor()
+        
+        self.behavior = BehaviorPredictor()
+        self.emotions = EmotionalModel()
+        self.short_term = MemoryStore()
+        self.persistent = PersistentMemoryStore()
+        self.vector = VectorMemory()
+
+        # Tool Router Integration
+        self.router = ToolRouter()
+        self.guard = PolicyGuard()
+        self.security_logger = AILogger()
+
+    @staticmethod
+    def _extract_text(payload: Any) -> str:
+        """Safely extracts text string from a Dict, Object, or String."""
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("answer", str(payload))
+        # Fallback for object attributes
+        return getattr(payload, "text", str(payload))
+
+    async def process_query(self, user_input: str, user_id: str = "default_user") -> Dict[str, Any]:
+        try:
+            # Step 1: Context Assembly
+            context = await self._assemble_context(user_input, user_id)
+            
+            # Step 2: Intent Classification
+            intent_result = await self.intent_engine.classify(user_input, context)
+            intent = intent_result.get("intent", "conversation")
+            confidence = intent_result.get("confidence", 0.0)
+            context.update({"intent": intent, "intent_confidence": confidence})
+
+            # Step 3: Security Guard
+            if not self.guard.allow(intent):
+                return {
+                    "answer": "I'm sorry, my security policy doesn't allow me to perform that action.", 
+                    "emotion": "protective"
+                }
+
+            # Step 4: Planning & Execution Loop
+            execution_results = []
+            plan = await self.planner.create_initial_plan(intent, context)
+
+            for attempt in range(3):
+                current_step = plan.get_next_step(execution_results)
+                
+                # Stop if no tools needed or plan is done
+                if not current_step or current_step.get("tool") == "none":
+                    break
+
+                tool_name = current_step.get("tool")
+                args = {}
+                
+                # Extract arguments if confidence is high enough
+                if self.extractor and confidence >= 0.6:
+                    args = await self.extractor.extract(tool_name, user_input, context)
+
+                try:
+                    # Execute Tool via Router
+                    tool_result = await asyncio.wait_for(
+                        self.router.execute(tool_name, args), 
+                        timeout=10.0
+                    )
+                    execution_results.append({"tool": tool_name, "result": tool_result})
+                    plan.update_step(tool_name, tool_result)
+
+                    # Reflection Phase
+                    reflection = await asyncio.wait_for(
+                        self.reflector.analyze(execution_results, intent, user_input, context),
+                        timeout=8.0
+                    )
+                    
+                    if reflection.get("complete", False):
+                        break
+                    
+                    plan.adjust(reflection.get("feedback"))
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool execution timed out: {tool_name}")
+                    execution_results.append({"tool": tool_name, "result": "Error: Tool timed out."})
+                    break
+                except Exception as e:
+                    logger.error(f"Tool execution error ({tool_name}): {e}")
+                    execution_results.append({"tool": tool_name, "result": f"Error: {str(e)}"})
+                    break
+
+            # Step 5: Final Synthesis
+            emotional_state = self.emotions.update(user_input, context)
+            
+            # Handle both sync and async synthesize methods safely
+            if asyncio.iscoroutinefunction(self.reasoner.synthesize):
+                final_output = await self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+            else:
+                final_output = self.reasoner.synthesize(
+                    query=user_input, tool_data=execution_results,
+                    memory=context, emotion=emotional_state
+                )
+
+            # Normalize the output text using helper
+            reply_answer = self._extract_text(final_output)
+
+            # Step 6: Background Learning (Fire and Forget)
+            asyncio.create_task(self._learn(user_id, user_input, reply_answer, execution_results))
+
+            return {
+                "answer": reply_answer,
+                "emotion": emotional_state,
+                "plan": plan.to_list(),
+                "proactive_suggestions": self._generate_proactive_suggestions(context),
+                "metadata": {
+                    "intent": intent,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "location": context.get("location", "Unknown")
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Critical Brain Failure: {str(e)}", exc_info=True)
+            return {"answer": "I'm having trouble thinking clearly right now. Let's try again.", "error": True}
+
+    async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
+        """Gathers memory, preferences, and external context concurrently."""
+        
+        # Define the vector search task conditionally
+        vector_task = self.vector.search(text, limit=3) if self.vector else asyncio.sleep(0, result=[])
+
+        # Tasks tuple (fixed order)
+        tasks = [
+            self.persistent.get_entity("user_preferences"),
+            vector_task,
+            self._get_calendar_events()
+        ]
+        
+        # Gather all contexts safely; errors in one won't kill the others
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Unpack results safely
+        prefs = results[0] if not isinstance(results[0], Exception) else {}
+        semantic_mem = results[1] if not isinstance(results[1], Exception) else []
+        events = results[2] if not isinstance(results[2], Exception) else []
+
+        return {
+            "short_term": await self.persistent.recall_recent(limit=5), 
+            "persistent": prefs,
+            "semantic": semantic_mem,
+            "calendar": events,
+            "current_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S EST"),
+            "location": "Unknown Location" 
+        }
+
+    async def _get_calendar_events(self) -> List[Dict]:
+        if not self.calendar: 
+            return []
+        try:
+            return await asyncio.to_thread(self.calendar.list_upcoming_events, max_results=5)
+        except Exception as e:
+            logger.warning(f"Calendar fetch failed: {e}")
+            return []
+
+    async def _learn(self, user_id: str, query: str, output_text: str, results: List[Dict]):
+        """Background process to update memory and vectors."""
+        try:
+            # 1. Save interaction to persistent logs
+            await self.persistent.save(input_text=query, output_text=output_text)
+            
+            # 2. Extract new facts/knowledge
+            new_facts = await self.reflector.extract_knowledge(query, output_text, results)
+            
+            if new_facts and self.vector:
+                # 3. Update Vector DB
+                await self.vector.add_documents([f"{f['key']}: {f['value']}" for f in new_facts])
+                
+                # 4. Update Entity Store (Structured Memory)
+                # Check for method existence to prevent AttributeErrors
+                can_update = hasattr(self.persistent, "update_entity")
+                can_set = hasattr(self.persistent, "set_entity")
+
+                if not (can_update or can_set):
+                    # Prevent log spam if method is missing
+                    return
+
+                for fact in new_facts:
+                    if isinstance(fact, dict):
+                        key = fact.get("key")
+                        value = fact.get("value")
+                        if key and value:
+                            if can_update:
+                                await self.persistent.update_entity(key, value)
+                            elif can_set:
+                                await self.persistent.set_entity(key, value)
+
+        except Exception as e:
+            logger.error(f"Learning loop failed for user {user_id}: {e}")
+
+    def _generate_proactive_suggestions(self, context: Dict) -> List[str]:
+        """Placeholder logic for proactive suggestions."""
+        return []
+
+====================
+FILE: tools/tool_router.py
+====================
+import asyncio
+from twilio.rest import Client
+from ddgs import DDGS
+
+from backend.security.tool_guard import ToolGuard
+from backend.utils.logger import logger
+from backend.config.settings import settings
+from backend.tools.weather_tool import WeatherTool
+
+# Services
+from backend.services.email.email_service import EmailService
+from backend.services.shopping.shopping_agent import ShoppingAgent
+from backend.services.food.food_order_agent import FoodOrderAgent
+
+
+class ToolRouter:
+
+    def __init__(self):
+
+        self.twilio_client = None
+        self.guard = ToolGuard()
+        self.weather_tool = WeatherTool()   # FIX: initialize weather tool
+
+        # Twilio init
+        if settings.twilio_account_sid and settings.twilio_auth_token:
+            try:
+                sid = settings.twilio_account_sid.get_secret_value()
+                token = settings.twilio_auth_token.get_secret_value()
+                self.twilio_client = Client(sid, token)
+                logger.success("Twilio initialized")
+            except Exception:
+                logger.error("Twilio init failed", exc_info=True)
+        else:
+            logger.warning("Twilio disabled — missing credentials")
+
+    # --------------------------------------------------
+    # MAIN ENTRY
+    # --------------------------------------------------
+
+    async def execute(self, action: str, payload=None):
+
+        payload = payload or {}
+
+        logger.info(f"ToolRouter received action={action} payload={payload}")
+
+        if not self.guard.allow(action):
+            return {"error": "Tool blocked by safety policy"}
+
+        handlers = {
+            "weather": self.weather,
+            "web_search": self.web_search,
+            "restaurant_search": self.restaurant_search,
+            "order_food": self.order_food,
+            "food_suggest": self.food_suggest,
+            "shop_search": self.shop_search,
+            "send_sms": self.send_sms,
+            "reply_email": self.reply_email,
+            "chat": self.chat
+        }
+
+        handler = handlers.get(action)
+
+        if not handler:
+            return {"error": f"Unknown action {action}"}
+
+        try:
+
+            if asyncio.iscoroutinefunction(handler):
+                return await handler(payload)
+
+            return handler(payload)
+
+        except Exception as e:
+            logger.error(f"Tool execution failed: {action}", exc_info=True)
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # WEATHER
+    # --------------------------------------------------
+
+    async def weather(self, payload):
+
+        location = payload.get("location", "Toronto")
+
+        return await self.weather_tool.get_weather(location)
+
+    # --------------------------------------------------
+    # WEB SEARCH
+    # --------------------------------------------------
+
+    async def web_search(self, payload):
+
+        query = payload.get("query")
+
+        if not query:
+            return {"error": "Missing query"}
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=5))
+
+                formatted = []
+
+                for r in results:
+                    formatted.append({
+                        "title": r.get("title"),
+                        "snippet": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return formatted
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # RESTAURANT DISCOVERY
+    # --------------------------------------------------
+
+    async def restaurant_search(self, payload):
+
+        cuisine = payload.get("cuisine")
+        location = payload.get("location")
+
+        if not cuisine:
+            return {"error": "Cuisine required"}
+
+        query = f"best {cuisine} restaurants in {location or 'near me'}"
+
+        def run():
+
+            with DDGS() as ddgs:
+
+                results = list(ddgs.text(query, max_results=6))
+
+                restaurants = []
+
+                for r in results:
+
+                    restaurants.append({
+                        "name": r.get("title"),
+                        "description": r.get("body"),
+                        "url": r.get("href")
+                    })
+
+                return restaurants
+
+        return await asyncio.to_thread(run)
+
+    # --------------------------------------------------
+    # FOOD ORDERING
+    # --------------------------------------------------
+
+    async def order_food(self, payload):
+
+        agent = FoodOrderAgent()
+
+        return await agent.place_order(payload)
+
+    # --------------------------------------------------
+    # FOOD SUGGESTIONS
+    # --------------------------------------------------
+
+    async def food_suggest(self, payload):
+
+        cuisine = payload.get("cuisine")
+
+        agent = FoodOrderAgent()
+
+        return await agent.suggest(cuisine)
+
+    # --------------------------------------------------
+    # SHOPPING
+    # --------------------------------------------------
+
+    async def shop_search(self, payload):
+
+        agent = ShoppingAgent()
+
+        return await agent.search(payload.get("query"))
+
+    # --------------------------------------------------
+    # SMS
+    # --------------------------------------------------
+
+    def send_sms(self, payload):
+
+        if not self.twilio_client:
+            return {"error": "Twilio client not initialized"}
+
+        try:
+
+            msg = self.twilio_client.messages.create(
+                body=payload.get("body", ""),
+                from_=settings.twilio_number_primary,
+                to=payload.get("to") or settings.owner_number
+            )
+
+            return {"success": True, "sid": msg.sid}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # EMAIL
+    # --------------------------------------------------
+
+    async def reply_email(self, payload):
+
+        try:
+
+            service = EmailService()
+
+            result = await asyncio.to_thread(
+                service.send_email,
+                payload.get("to"),
+                payload.get("subject"),
+                payload.get("body")
+            )
+
+            return {"success": True, "result": result}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --------------------------------------------------
+    # CHAT FALLBACK
+    # --------------------------------------------------
+
+    def chat(self, payload):
+
+        return {
+            "action": "chat",
+            "message": payload.get("message", "")
+        }

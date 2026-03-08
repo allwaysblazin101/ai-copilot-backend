@@ -1,0 +1,19 @@
+# Secrets & sensitive files
+.env
+secrets/
+*.env
+credentials.json
+token.json
+*.key
+*.pem
+*.secret
+
+# Python caches & temp files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
