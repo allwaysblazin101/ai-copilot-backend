@@ -120,23 +120,25 @@ RESPONSE FORMAT (JSON ONLY — no other text):
 
     def _format_tool_results(self, tool_data: List[Dict]) -> str:
         if not tool_data:
-            return ""
+            return "No tool results available."
+
         formatted = []
         for entry in tool_data:
-            tool = entry.get("tool", "unknown")
-            result = entry.get("result", {})
-            if isinstance(result, dict):
-                # Handle common tool outputs nicely
-                if "answer" in result or "summary" in result:
-                    content = result.get("answer") or result.get("summary") or str(result)
-                elif "results" in result:
-                    content = "\n".join([r.get("content", "")[:200] for r in result["results"][:3]])
-                else:
-                    content = json.dumps(result, indent=2)[:400]
-            else:
-                content = str(result)[:400]
-            formatted.append(f"[{tool.upper()} OUTPUT]\n{content}")
-        return "\n\n".join(formatted) or "No tool data."
+            # Handle if the entry is the result itself (manual test case) 
+            # or if it's wrapped in a 'result' key (Planner case)
+            data = entry.get("result") if isinstance(entry.get("result"), dict) else entry
+            
+            # Extract content from 'summary' (Email), 'answer' (Tavily), or stringify
+            content = data.get("summary") or data.get("answer") or str(data)
+            
+            # Get the tool name for the header
+            tool_name = (entry.get("tool") or entry.get("action") or "TOOL").upper()
+            
+            formatted.append(f"[{tool_name} OUTPUT]\n{content}")
+
+        return "\n\n".join(formatted)
+
+
 
     def _format_chat_history(self, history: List[Any]) -> List[Dict[str, str]]:
         messages = []

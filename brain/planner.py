@@ -88,39 +88,27 @@ class Planner:
         """
         Generate a dynamic, multi-step plan using LLM based on intent and full context.
         """
-        # Fast path: simple conversation with no calendar → no need for planning
         if intent == "conversation" and not context.get("calendar"):
-            return Plan([PlanStep(
-                tool="none",
-                args={},
-                description="Direct conversational response",
-                priority=1
-            )])
+            return Plan([PlanStep(tool="none", args={}, description="Direct conversational response", priority=1)])
 
-        # Build rich prompt with all context layers
         prompt = self._build_planning_prompt(intent, context)
 
         try:
+            # Defined outside the call to avoid syntax/bracket errors
+            sys_msg = (
+                "You are a precise task planner. Break intent into 2-5 steps. "
+                "TOOLS: summarize_emails (args: query, count), calendar_list, web_search, order_food, send_sms. "
+                "Output JSON: {'steps': [{'tool': '...', 'args': {}, 'description': '...'}]}"
+            )
+
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Fast & cost-effective for planning
+                model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": """
-You are a precise, logic-driven task planner for an AI assistant.
-Your job is to break down the user's intent into a short sequence (2–5) of actionable steps.
-Use only the AVAILABLE TOOLS listed. Do not invent tools.
-
-Prioritize:
-- Use calendar when events or scheduling are relevant.
-- Use web_search for real-time info (weather, news, prices).
-- Use order_food for food-related requests.
-- Keep steps minimal and sequential.
-
-Output format: JSON {"steps": [{"tool": "...", "args": {...}, "description": "..."}]}
-"""},
+                    {"role": "system", "content": sys_msg},
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.4,  # Low variance for consistent plans
+                temperature=0.4,
                 max_tokens=600
             )
 
@@ -172,7 +160,12 @@ Generate a short, logical plan using only available tools.
         """Reliable static plan when LLM fails."""
         steps = [PlanStep("none", {}, "General reasoning", priority=1)]
 
-        if intent in ["web_search", "weather", "news", "price"]:
+        if intent in ["email", "check_email", "summarize_emails"]:
+            steps = [
+                PlanStep("summarize_emails", {"query": "is:unread", "count": 3}, "Fetch latest unread emails", priority=1)
+            ]
+
+        elif intent in ["web_search", "weather", "news", "price"]:
             steps = [
                 PlanStep("web_search", {"query": intent}, "Fetch real-time information", priority=1),
                 PlanStep("none", {}, "Summarize results", priority=2)
@@ -189,7 +182,7 @@ Generate a short, logical plan using only available tools.
                 PlanStep("create_calendar_event", {}, "Parse and create event", priority=1)
             ]
 
-        # Add proactive morning/evening
+        # Add proactive morning/evening briefing logic
         hour = datetime.now(timezone.utc).hour
         if 6 <= hour <= 10:
             steps.append(PlanStep("none", {}, "Offer morning briefing", priority=3))

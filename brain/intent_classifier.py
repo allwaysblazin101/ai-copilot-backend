@@ -13,6 +13,7 @@ Classify this user message: "{message}"
 
 Possible intents (pick ONE):
 - conversation: casual chat, greetings, questions about self
+- summarize_emails: check email, find emails, read inbox, "any news from X?", "what's in my mail"
 - weather: weather, temperature, forecast, "is it raining", "what's the weather"
 - order_food: food, restaurant, order, pizza, delivery
 - calendar_event: schedule, meeting, add event, calendar
@@ -33,6 +34,8 @@ Return ONLY JSON:
                 max_tokens=150,
                 response_format={"type": "json_object"}
             )
-            return json.loads(resp.choices[0].message.content.strip())
+            # Parse and ensure the intent matches what the Planner expects
+            data = json.loads(resp.choices[0].message.content.strip())
+            return data
         except Exception:
-            return {"intent": "conversation", "confidence": 0.5, "reason": "fallback"}
+            return {"intent": "conversation", "confidence": 0.5, "reason": "fallback due to error"}

@@ -1,17 +1,18 @@
 class ToolGuard:
     SAFE_TOOLS = {
-    "chat",
-    "send_sms",
-    "shop_search",
-    "food_suggest",
-    "amazon_search",
-    "web_search",
-    "order_food",
-    "restaurant_search",
-    "create_calendar_event",
-    "calendar_list",
-    "reply_email",
-}
+        "chat",
+        "send_sms",
+        "shop_search",
+        "food_suggest",
+        "amazon_search",
+        "web_search",
+        "order_food",
+        "restaurant_search",
+        "create_calendar_event",
+        "calendar_list",
+        "reply_email",
+        "summarize_emails",  
+    }
     
 
     def reply_email(self, payload): # Ensure this is indented exactly like 'execute'
