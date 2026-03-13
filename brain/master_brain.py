@@ -36,7 +36,6 @@ class MasterBrain:
     def __init__(self):
         self.google_auth = GoogleAuth()
 
-        # Initialize Calendar only if auth is valid
         self.calendar = (
             CalendarService(creds=self.google_auth.credentials)
             if self.google_auth.credentials
@@ -61,14 +60,12 @@ class MasterBrain:
         self.goal_service = GoalService()
         self.profile_service = ProfileService()
 
-        # Tool Router Integration
         self.router = ToolRouter()
         self.guard = PolicyGuard()
         self.security_logger = AILogger()
 
     @staticmethod
     def _extract_text(payload: Any) -> str:
-        """Safely extracts text string from a dict, object, or string."""
         if isinstance(payload, str):
             return payload
         if isinstance(payload, dict):
@@ -86,10 +83,8 @@ class MasterBrain:
         user_id: str = "default_user",
     ) -> Dict[str, Any]:
         try:
-            # Step 1: Context Assembly
             context = await self._assemble_context(user_input, user_id)
 
-            # Step 2: Intent Classification
             intent_result = await self.intent_engine.classify(user_input, context)
             intent = intent_result.get("intent", "conversation")
             confidence = intent_result.get("confidence", 0.0)
@@ -103,19 +98,24 @@ class MasterBrain:
                 }
             )
 
-            # Step 3: Security Guard
             if not self.guard.allow(user_input):
                 return {
                     "answer": "I'm sorry, my security policy doesn't allow me to perform that action.",
                     "emotion": "protective",
                 }
 
-            # Step 3.5: Goal capture shortcut
+            alias_response = await self._maybe_capture_alias(user_input, user_id)
+            if alias_response is not None:
+                return alias_response
+
+            preference_response = await self._maybe_capture_preference(user_input, user_id)
+            if preference_response is not None:
+                return preference_response
+
             goal_response = await self._maybe_capture_goal(user_input, user_id)
             if goal_response is not None:
                 return goal_response
 
-            # Step 4: Planning & Execution Loop
             execution_results = []
             plan = await self.planner.create_initial_plan(intent, context)
 
@@ -185,7 +185,6 @@ class MasterBrain:
                     plan.update_step(tool_name, {"error": str(e)})
                     break
 
-            # Step 5: Final Synthesis
             emotional_state = self.emotions.update(user_input, context)
 
             if asyncio.iscoroutinefunction(self.reasoner.synthesize):
@@ -205,7 +204,6 @@ class MasterBrain:
 
             reply_answer = self._extract_text(final_output)
 
-            # Step 6: Background Learning
             task = asyncio.create_task(
                 self._learn(user_id, user_input, reply_answer, execution_results)
             )
@@ -229,6 +227,115 @@ class MasterBrain:
                 "answer": "I'm having trouble thinking clearly right now.",
                 "error": True,
             }
+
+    async def _maybe_capture_alias(self, user_input: str, user_id: str) -> Dict[str, Any] | None:
+        text = user_input.strip()
+        lower = text.lower()
+
+        alias = None
+
+        if lower.startswith("call me "):
+            alias = text[8:].strip()
+        elif lower.startswith("my name is "):
+            alias = text[11:].strip()
+        elif lower.startswith("you can call me "):
+            alias = text[16:].strip()
+
+        if not alias:
+            return None
+
+        alias = alias[:40].strip().strip(".!,")
+        if not alias:
+            return None
+
+        profile = await self.profile_service.update_profile(
+            user_id,
+            {"alias": alias},
+        )
+
+        return {
+            "answer": f"Got it — I’ll call you {profile['alias']}.",
+            "emotion": "friendly",
+            "plan": [],
+            "proactive_suggestions": [
+                "Tell me one of your goals",
+                "Ask me to remember a preference",
+            ],
+            "metadata": {
+                "intent": "alias_capture",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+
+    async def _maybe_capture_preference(self, user_input: str, user_id: str) -> Dict[str, Any] | None:
+        text = user_input.strip()
+        lower = text.lower()
+
+        updates: Dict[str, Any] | None = None
+        answer: str | None = None
+
+        if lower.startswith("i prefer "):
+            pref = text[9:].strip().strip(".!,")
+            if pref:
+                updates = {"preferences": {"general": {"stated_preference": pref}}}
+                answer = f"Got it — I’ll remember that you prefer {pref}."
+
+        elif lower.startswith("i like "):
+            pref = text[7:].strip().strip(".!,")
+            if pref:
+                updates = {"preferences": {"general": {"likes": pref}}}
+                answer = f"Got it — I’ll remember that you like {pref}."
+
+        elif lower.startswith("i'm allergic to "):
+            item = text[15:].strip().strip(".!,")
+            if item:
+                updates = {"constraints": {"dietary": [item]}}
+                answer = f"Got it — I’ll remember that you’re allergic to {item}."
+
+        elif lower.startswith("i am allergic to "):
+            item = text[17:].strip().strip(".!,")
+            if item:
+                updates = {"constraints": {"dietary": [item]}}
+                answer = f"Got it — I’ll remember that you’re allergic to {item}."
+
+        elif lower.startswith("don't text me after "):
+            quiet = text[20:].strip().strip(".!,")
+            if quiet:
+                updates = {"constraints": {"quiet_hours": {"after": quiet}}}
+                answer = f"Understood — I’ll treat {quiet} as your quiet-hours cutoff."
+
+        elif lower.startswith("do not text me after "):
+            quiet = text[21:].strip().strip(".!,")
+            if quiet:
+                updates = {"constraints": {"quiet_hours": {"after": quiet}}}
+                answer = f"Understood — I’ll treat {quiet} as your quiet-hours cutoff."
+
+        if not updates or not answer:
+            return None
+
+        profile = await self.profile_service.get_profile(user_id)
+
+        if "constraints" in updates and "dietary" in updates["constraints"]:
+            existing = profile.get("constraints", {}).get("dietary", []) or []
+            new_item = updates["constraints"]["dietary"][0]
+            merged = list(dict.fromkeys(existing + [new_item]))
+            updates["constraints"]["dietary"] = merged
+
+        await self.profile_service.update_profile(user_id, updates)
+
+        return {
+            "answer": answer,
+            "emotion": "friendly",
+            "plan": [],
+            "proactive_suggestions": [
+                "Tell me another preference",
+                "Tell me one of your goals",
+            ],
+            "metadata": {
+                "intent": "preference_capture",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
 
     async def _maybe_capture_goal(self, user_input: str, user_id: str) -> Dict[str, Any] | None:
         text = user_input.lower().strip()
@@ -312,7 +419,6 @@ class MasterBrain:
         return "life"
 
     async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
-        """Gather memory, preferences, and external context concurrently."""
         try:
             vector_task = (
                 self._maybe_await(self.vector.search(text, limit=3))
@@ -384,7 +490,6 @@ class MasterBrain:
         answer: str,
         tools: List[Dict[str, Any]],
     ):
-        """Save interaction to persistent and vector memory."""
         try:
             await self._maybe_await(
                 self.persistent.save(
@@ -407,7 +512,6 @@ class MasterBrain:
             logger.error(f"Background task failed: {e}", exc_info=True)
 
     def _generate_proactive_suggestions(self, context: Dict[str, Any]) -> List[str]:
-        """Generate simple dynamic suggestions based on context."""
         suggestions = ["What's the weather?", "Check my schedule"]
 
         if context.get("calendar_events"):
