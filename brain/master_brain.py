@@ -28,7 +28,7 @@ from backend.services.food.food_order_agent import FoodOrderAgent
 from backend.services.payment.stripe_service import StripeService
 from backend.services.goals.goal_service import GoalService
 from backend.services.profile.profile_service import ProfileService
-
+from backend.services.replies.reply_service import ReplyService
 from backend.utils.logger import logger
 
 
@@ -50,6 +50,7 @@ class MasterBrain:
         self.reflector = ReflectionModule()
         self.intent_engine = IntentClassifier()
         self.extractor = ArgumentExtractor()
+        self.reply_service = ReplyService()
 
         self.behavior = BehaviorPredictor()
         self.emotions = EmotionalModel()
@@ -119,6 +120,14 @@ class MasterBrain:
             finance_response = await self._maybe_handle_finance_query(user_input, user_id)
             if finance_response is not None:
                 return finance_response
+
+            text_lower = user_input.lower().strip()
+
+            if "portfolio" in text_lower:
+                return await self._handle_portfolio_request()
+
+            if "last order" in text_lower or "order status" in text_lower or "last trade" in text_lower:
+                return await self._handle_last_order_request(user_id)
 
             execution_results = []
             plan = await self.planner.create_initial_plan(intent, context)
@@ -270,6 +279,74 @@ class MasterBrain:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
+
+    async def _handle_portfolio_request(self) -> dict:
+        result = await self.router.execute("ibkr_portfolio_summary", {})
+
+        if not isinstance(result, dict) or not result.get("success"):
+            return {"answer": "I couldn't read your portfolio right now."}
+
+        account = result.get("account_summary", {}) or {}
+        positions = result.get("positions", {}) or {}
+
+        rows = (account.get("account_summary", []) or []) if isinstance(account, dict) else []
+        wanted = {"NetLiquidation", "TotalCashValue", "BuyingPower"}
+        picked = [r for r in rows if r.get("tag") in wanted]
+
+        parts = []
+        for row in picked:
+            parts.append(
+                f"{row.get('tag')}: {row.get('value')} {row.get('currency', '')}".strip()
+            )
+
+        pos_rows = (positions.get("positions", []) or []) if isinstance(positions, dict) else []
+        if pos_rows:
+            pos_text = ", ".join(
+                f"{p.get('symbol')}: {p.get('position')}" for p in pos_rows[:5]
+            )
+        else:
+            pos_text = "no positions"
+
+        answer_bits = []
+        if parts:
+            answer_bits.append(" | ".join(parts))
+        answer_bits.append(f"Positions: {pos_text}")
+
+        return {"answer": "Portfolio: " + " | ".join(answer_bits)}
+
+    async def _handle_last_order_request(self, user_id: str) -> dict:
+        last_order = await self.reply_service.get_last_order(user_id)
+
+        if not last_order:
+            return {"answer": "I don't have a saved last order yet."}
+
+        result = last_order.get("order_result", {}) or {}
+        submitted = result.get("submitted_order", {}) or {}
+        statuses = result.get("order_status", []) or []
+        errors = result.get("errors", []) or []
+
+        if not submitted:
+            return {"answer": "I found a saved last order record, but it is incomplete."}
+
+        parts = [
+            f"{submitted.get('action', '?')} {submitted.get('quantity', '?')} {submitted.get('symbol', '?')}",
+            f"orderId {submitted.get('orderId', '?')}",
+        ]
+
+        if statuses:
+            latest = statuses[-1]
+            parts.append(f"status {latest.get('status', '?')}")
+            parts.append(f"filled {latest.get('filled', '?')}")
+            parts.append(f"remaining {latest.get('remaining', '?')}")
+            if latest.get("avgFillPrice") not in (None, 0, 0.0):
+                parts.append(f"avgFill {latest.get('avgFillPrice')}")
+        elif errors:
+            latest_err = errors[-1]
+            parts.append(f"error {latest_err.get('message', 'unknown')}")
+        else:
+            parts.append("status submitted")
+
+        return {"answer": "Last order: " + " | ".join(parts)}
 
     async def _maybe_capture_preference(self, user_input: str, user_id: str) -> Dict[str, Any] | None:
         text = user_input.strip()
