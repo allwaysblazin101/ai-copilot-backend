@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     owner_number: str | None = Field(default=None)
     stripe_secret_key: SecretStr | None = Field(default=None)
     stripe_publishable_key: str | None = Field(default=None)
+    ibkr_allow_paper_trading: bool = False
 
     # Google / Gmail
     google_client_secrets_path: str = Field(

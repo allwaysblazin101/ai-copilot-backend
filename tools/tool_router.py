@@ -148,6 +148,14 @@ class ToolRouter:
         return await asyncio.to_thread(svc.get_open_orders)
 
     async def ibkr_place_paper_order(self, payload):
+        svc = IBKRService(host="127.0.0.1", port=4002)
+
+        if not settings.ibkr_allow_paper_trading:
+            return {"success": False, "error": "Paper trading is disabled by config"}
+
+        if svc.port != 4002:
+            return {"success": False, "error": "Trading is only allowed on IBKR paper port 4002"}
+
         symbol = (payload.get("symbol") or "").upper().strip()
         action = (payload.get("action") or "").upper().strip()
         quantity = int(payload.get("quantity", 0))
@@ -165,8 +173,6 @@ class ToolRouter:
 
         if quantity > 2:
             return {"success": False, "error": "Quantity exceeds safety limit of 2 shares"}
-
-        svc = IBKRService(host="127.0.0.1", port=4002)
 
         if action == "SELL":
             positions_result = await asyncio.to_thread(svc.get_positions)
