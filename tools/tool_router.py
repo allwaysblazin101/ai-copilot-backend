@@ -1,5 +1,8 @@
 # backend/tools/tool_router.py
 import asyncio
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from twilio.rest import Client
 
 from backend.security.tool_guard import ToolGuard
@@ -155,6 +158,21 @@ class ToolRouter:
 
         if svc.port != 4002:
             return {"success": False, "error": "Trading is only allowed on IBKR paper port 4002"}
+
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        weekday = now_et.weekday()
+        hour = now_et.hour
+        minute = now_et.minute
+
+        is_weekday = weekday < 5
+        after_open = (hour > 9) or (hour == 9 and minute >= 30)
+        before_close = hour < 16
+
+        if not (is_weekday and after_open and before_close):
+            return {
+                "success": False,
+                "error": "Paper trading is only allowed during regular US market hours"
+            }
 
         symbol = (payload.get("symbol") or "").upper().strip()
         action = (payload.get("action") or "").upper().strip()

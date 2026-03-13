@@ -197,19 +197,26 @@ async def sms_webhook(
                 await reply_service.clear_pending_trade(owner_number)
 
                 if isinstance(result, dict) and result.get("success"):
-                    submitted = result.get("submitted_order", {})
-                    statuses = result.get("order_status", []) or []
-                    status_text = statuses[0].get("status") if statuses else "Submitted"
+statuses = result.get("order_status", []) or []
+latest = statuses[-1] if statuses else {}
+status_text = latest.get("status", "Submitted")
+filled = latest.get("filled", 0)
+remaining = latest.get("remaining", 0)
+
+reply_text = (
+    f"Paper order: {submitted.get('action')} "
+    f"{submitted.get('quantity')} {submitted.get('symbol')} "
+    f"| Status: {status_text} | Filled: {filled} | Remaining: {remaining}"
+)
+                else:
+                    latest = statuses[-1] if statuses else {}
+                    filled = latest.get("filled", 0)
+                    remaining = latest.get("remaining", 0)
 
                     reply_text = (
-                        f"Paper order submitted: {submitted.get('action')} "
+                        f"Paper order: {submitted.get('action')} "
                         f"{submitted.get('quantity')} {submitted.get('symbol')} "
-                        f"| Status: {status_text}"
-                    )
-                else:
-                    reply_text = (
-                        f"I couldn't place the paper order: "
-                        f"{result.get('error', 'unknown error')}"
+                        f"| Status: {status_text} | Filled: {filled} | Remaining: {remaining}"
                     )
 
             elif pending_trade and text_lower in {"no", "cancel", "stop"}:
