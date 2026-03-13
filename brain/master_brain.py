@@ -26,6 +26,8 @@ from backend.services.google.google_auth import GoogleAuth
 from backend.services.calendar.calendar_service import CalendarService
 from backend.services.food.food_order_agent import FoodOrderAgent
 from backend.services.payment.stripe_service import StripeService
+from backend.services.goals.goal_service import GoalService
+from backend.services.profile.profile_service import ProfileService
 
 from backend.utils.logger import logger
 
@@ -55,6 +57,9 @@ class MasterBrain:
         self.short_term = MemoryStore()
         self.persistent = PersistentMemoryStore()
         self.vector = VectorMemory()
+
+        self.goal_service = GoalService()
+        self.profile_service = ProfileService()
 
         # Tool Router Integration
         self.router = ToolRouter()
@@ -104,6 +109,11 @@ class MasterBrain:
                     "answer": "I'm sorry, my security policy doesn't allow me to perform that action.",
                     "emotion": "protective",
                 }
+
+            # Step 3.5: Goal capture shortcut
+            goal_response = await self._maybe_capture_goal(user_input, user_id)
+            if goal_response is not None:
+                return goal_response
 
             # Step 4: Planning & Execution Loop
             execution_results = []
@@ -220,6 +230,87 @@ class MasterBrain:
                 "error": True,
             }
 
+    async def _maybe_capture_goal(self, user_input: str, user_id: str) -> Dict[str, Any] | None:
+        text = user_input.lower().strip()
+
+        goal_prefixes = [
+            "i want to ",
+            "i wanna ",
+            "my goal is to ",
+            "help me ",
+        ]
+
+        matched_prefix = next((p for p in goal_prefixes if text.startswith(p)), None)
+        if not matched_prefix:
+            return None
+
+        goal_text = user_input[len(matched_prefix):].strip()
+        if not goal_text:
+            return None
+
+        domain = self._infer_goal_domain(goal_text)
+
+        goal = await self.goal_service.add_goal(
+            user_id=user_id,
+            domain=domain,
+            title=goal_text,
+        )
+
+        profile = await self.profile_service.get_profile(user_id)
+        alias = profile.get("alias") or "there"
+
+        suggestions_map = {
+            "health": [
+                "Want me to help turn this into a weekly routine?",
+                "I can also help with reminders, meals, and workout planning.",
+            ],
+            "finance": [
+                "Want me to help turn this into a finance routine?",
+                "I can also help with savings reminders and market check-ins.",
+            ],
+            "life": [
+                "Want me to help turn this into a step-by-step plan?",
+                "I can also help with scheduling, reminders, and follow-through.",
+            ],
+        }
+
+        answer = (
+            f"Got it {alias} — I saved this as a {domain} goal: '{goal['title']}'. "
+            f"{suggestions_map.get(domain, ['Want me to help break it down into steps?'])[0]}"
+        )
+
+        return {
+            "answer": answer,
+            "emotion": "supportive",
+            "plan": [],
+            "proactive_suggestions": suggestions_map.get(domain, []),
+            "metadata": {
+                "intent": "goal_capture",
+                "goal_id": goal["id"],
+                "goal_domain": domain,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+
+    def _infer_goal_domain(self, goal_text: str) -> str:
+        text = goal_text.lower()
+
+        health_keywords = [
+            "exercise", "work out", "workout", "gym", "run", "fitness",
+            "diet", "meal", "nutrition", "sleep", "healthy", "lose weight",
+            "gain muscle", "meal prep",
+        ]
+        finance_keywords = [
+            "save money", "budget", "invest", "trading", "portfolio", "stocks",
+            "finance", "financial", "income", "debt", "spend less",
+        ]
+
+        if any(k in text for k in health_keywords):
+            return "health"
+        if any(k in text for k in finance_keywords):
+            return "finance"
+        return "life"
+
     async def _assemble_context(self, text: str, user_id: str) -> Dict[str, Any]:
         """Gather memory, preferences, and external context concurrently."""
         try:
@@ -232,18 +323,21 @@ class MasterBrain:
             prefs_task = self._maybe_await(
                 self.persistent.get_entity("user_preferences")
             )
+            profile_task = self.profile_service.get_profile(user_id)
             calendar_task = self._get_calendar_events()
 
             results = await asyncio.gather(
                 prefs_task,
                 vector_task,
+                profile_task,
                 calendar_task,
                 return_exceptions=True,
             )
 
             prefs = results[0] if not isinstance(results[0], Exception) else {}
             semantic_mem = results[1] if not isinstance(results[1], Exception) else []
-            events = results[2] if not isinstance(results[2], Exception) else []
+            profile = results[2] if not isinstance(results[2], Exception) else {}
+            events = results[3] if not isinstance(results[3], Exception) else []
 
             short_term = await self._maybe_await(
                 self.persistent.recall_recent(user_id=user_id, limit=10)
@@ -252,6 +346,7 @@ class MasterBrain:
             return {
                 "short_term": short_term or [],
                 "preferences": prefs or {},
+                "profile": profile or {},
                 "semantic_memory": semantic_mem or [],
                 "calendar_events": events or [],
                 "current_time": datetime.now(timezone.utc).isoformat(),
@@ -264,6 +359,7 @@ class MasterBrain:
             return {
                 "short_term": [],
                 "preferences": {},
+                "profile": {},
                 "semantic_memory": [],
                 "calendar_events": [],
                 "current_time": datetime.now(timezone.utc).isoformat(),
@@ -316,5 +412,13 @@ class MasterBrain:
 
         if context.get("calendar_events"):
             suggestions.insert(0, "What's next on my calendar?")
+
+        profile = context.get("profile", {}) or {}
+        goals = profile.get("goals", {}) if isinstance(profile, dict) else {}
+
+        if goals.get("health"):
+            suggestions.append("Help me stay on track with my health goals")
+        if goals.get("finance"):
+            suggestions.append("Check in on my finance goals")
 
         return suggestions
