@@ -116,6 +116,10 @@ class MasterBrain:
             if goal_response is not None:
                 return goal_response
 
+            finance_response = await self._maybe_handle_finance_query(user_input, user_id)
+            if finance_response is not None:
+                return finance_response
+
             execution_results = []
             plan = await self.planner.create_initial_plan(intent, context)
 
@@ -398,6 +402,128 @@ class MasterBrain:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
+
+    async def _maybe_handle_finance_query(self, user_input: str, user_id: str) -> Dict[str, Any] | None:
+        text = user_input.lower().strip()
+
+        if any(phrase in text for phrase in ["ibkr balance", "account balance", "buying power", "net liquidation"]):
+            result = await self.router.execute("ibkr_account_summary", {})
+            return {
+                "answer": self._format_ibkr_account_summary(result),
+                "emotion": "focused",
+                "plan": [],
+                "proactive_suggestions": [
+                    "What positions do I have?",
+                    "Any open orders?",
+                ],
+                "metadata": {
+                    "intent": "finance_account_summary",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            }
+
+        if any(phrase in text for phrase in ["positions", "holdings", "what do i own"]):
+            result = await self.router.execute("ibkr_positions", {})
+            return {
+                "answer": self._format_ibkr_positions(result),
+                "emotion": "focused",
+                "plan": [],
+                "proactive_suggestions": [
+                    "What's my IBKR balance?",
+                    "Any open orders?",
+                ],
+                "metadata": {
+                    "intent": "finance_positions",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            }
+
+        if any(phrase in text for phrase in ["open orders", "working orders", "pending orders"]):
+            result = await self.router.execute("ibkr_open_orders", {})
+            return {
+                "answer": self._format_ibkr_open_orders(result),
+                "emotion": "focused",
+                "plan": [],
+                "proactive_suggestions": [
+                    "What's my IBKR balance?",
+                    "What positions do I have?",
+                ],
+                "metadata": {
+                    "intent": "finance_open_orders",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            }
+
+        return None
+
+    def _format_ibkr_account_summary(self, result: Dict[str, Any]) -> str:
+        if not isinstance(result, dict):
+            return "I couldn't read your IBKR account summary."
+
+        if not result.get("success"):
+            return f"I couldn't read your IBKR account summary: {result.get('error', 'unknown error')}"
+
+        rows = result.get("account_summary", []) or []
+        if not rows:
+            return "I connected to IBKR, but no account summary values came back."
+
+        wanted = {"NetLiquidation", "TotalCashValue", "BuyingPower"}
+        picked = [r for r in rows if r.get("tag") in wanted]
+
+        if not picked:
+            return "I connected to IBKR, but I couldn't find balance fields."
+
+        parts = []
+        for row in picked:
+            tag = row.get("tag")
+            value = row.get("value")
+            currency = row.get("currency", "")
+            parts.append(f"{tag}: {value} {currency}".strip())
+
+        return "IBKR account summary — " + " | ".join(parts)
+
+    def _format_ibkr_positions(self, result: Dict[str, Any]) -> str:
+        if not isinstance(result, dict):
+            return "I couldn't read your IBKR positions."
+
+        if not result.get("success"):
+            return f"I couldn't read your IBKR positions: {result.get('error', 'unknown error')}"
+
+        positions = result.get("positions", []) or []
+
+        if not positions:
+            return "You don't have any open positions in IBKR right now."
+
+        lines = []
+        for pos in positions[:5]:
+            symbol = pos.get("symbol", "?")
+            qty = pos.get("position", 0)
+            avg = pos.get("avgCost", 0)
+            lines.append(f"{symbol}: {qty} shares @ avg {avg}")
+
+        return "IBKR positions — " + " | ".join(lines)
+
+    def _format_ibkr_open_orders(self, result: Dict[str, Any]) -> str:
+        if not isinstance(result, dict):
+            return "I couldn't read your IBKR open orders."
+
+        if not result.get("success"):
+            return f"I couldn't read your IBKR open orders: {result.get('error', 'unknown error')}"
+
+        orders = result.get("open_orders", []) or []
+
+        if not orders:
+            return "You don't have any open IBKR orders right now."
+
+        lines = []
+        for order in orders[:5]:
+            symbol = order.get("symbol", "?")
+            action = order.get("action", "?")
+            qty = order.get("totalQuantity", "?")
+            status = order.get("status", "?")
+            lines.append(f"{action} {qty} {symbol} ({status})")
+
+        return "IBKR open orders — " + " | ".join(lines)
 
     def _infer_goal_domain(self, goal_text: str) -> str:
         text = goal_text.lower()
