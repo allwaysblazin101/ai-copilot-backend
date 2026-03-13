@@ -1,11 +1,11 @@
 # backend/brain/planner.py
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 from openai import AsyncOpenAI
+
 from backend.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -17,15 +17,15 @@ class PlanStep:
         tool: str,
         args: Dict[str, Any],
         description: str,
-        priority: int = 1,
-        depends_on: Optional[str] = None
+        priority: float = 1,
+        depends_on: Optional[str] = None,
     ):
         self.tool = tool
         self.args = args
         self.description = description
         self.priority = priority
         self.depends_on = depends_on
-        self.status = "pending"  # pending, completed, failed
+        self.status = "pending"
         self.result = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,44 +35,61 @@ class PlanStep:
             "description": self.description,
             "priority": self.priority,
             "depends_on": self.depends_on,
-            "status": self.status
+            "status": self.status,
         }
 
 
 class Plan:
     def __init__(self, steps: List[PlanStep]):
         self.steps = sorted(steps, key=lambda s: s.priority)
-        self.current_index = 0
 
-    def get_next_step(self, completed_tools: List[str]) -> Optional[Dict]:
-        """Get next pending step that has no unmet dependencies."""
+    def get_next_step(self, execution_results: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Get next pending step that has no unmet dependencies.
+        execution_results is a list like:
+        [{"tool": "weather", "result": {...}}, ...]
+        """
+        completed_tools = [
+            item.get("tool")
+            for item in execution_results
+            if isinstance(item, dict) and item.get("tool")
+        ]
+
         for step in self.steps:
             if step.status == "pending":
                 if step.depends_on is None or step.depends_on in completed_tools:
                     return step.to_dict()
+
         return None
 
     def update_step(self, tool_name: str, result: Any):
-        """Mark step as completed/failed and store result."""
+        """Mark first matching pending step as completed/failed and store result."""
         for step in self.steps:
             if step.tool == tool_name and step.status == "pending":
-                step.status = "failed" if isinstance(result, Exception) or "error" in str(result).lower() else "completed"
+                result_text = str(result).lower()
+                step.status = "failed" if "error" in result_text else "completed"
                 step.result = result
                 break
 
-    def adjust(self, feedback: str):
+    def adjust(self, feedback: Optional[str]):
         """Dynamic adjustment based on reflection."""
+        if not feedback:
+            return
+
         logger.info(f"Plan adjustment: {feedback}")
-        if "more information" in feedback.lower() or "search" in feedback.lower():
+
+        feedback_lower = feedback.lower()
+        if "more information" in feedback_lower or "search" in feedback_lower:
             new_step = PlanStep(
                 tool="web_search",
                 args={"query": feedback},
                 description="Follow-up search based on reflection",
-                priority=0.5  # insert early
+                priority=0.5,
             )
             self.steps.insert(0, new_step)
+            self.steps = sorted(self.steps, key=lambda s: s.priority)
 
-    def to_list(self) -> List[Dict]:
+    def to_list(self) -> List[Dict[str, Any]]:
         return [s.to_dict() for s in self.steps]
 
 
@@ -80,52 +97,61 @@ class Planner:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
 
-    async def create_initial_plan(
-        self,
-        intent: str,
-        context: Dict[str, Any]
-    ) -> Plan:
+    async def create_initial_plan(self, intent: str, context: Dict[str, Any]) -> Plan:
         """
-        Generate a dynamic, multi-step plan using LLM based on intent and full context.
+        Generate a dynamic multi-step plan using the user's intent and context.
         """
-        if intent == "conversation" and not context.get("calendar"):
-            return Plan([PlanStep(tool="none", args={}, description="Direct conversational response", priority=1)])
+        if intent in {"conversation", "other"}:
+            return Plan([
+                PlanStep(
+                    tool="none",
+                    args={},
+                    description="Direct conversational response",
+                    priority=1,
+                )
+            ])
 
         prompt = self._build_planning_prompt(intent, context)
 
         try:
-            # Defined outside the call to avoid syntax/bracket errors
             sys_msg = (
-                "You are a precise task planner. Break intent into 2-5 steps. "
-                "TOOLS: summarize_emails (args: query, count), calendar_list, web_search, order_food, send_sms. "
-                "Output JSON: {'steps': [{'tool': '...', 'args': {}, 'description': '...'}]}"
+                "You are a precise task planner. "
+                "Break the user's intent into 1 to 5 steps using only these tools when needed: "
+                "weather, web_search, summarize_emails, calendar_list, create_calendar_event, "
+                "restaurant_search, order_food, food_suggest, shop_search, send_sms, reply_email, chat. "
+                "If no tool is needed, use tool='none'. "
+                "Return ONLY JSON in this format: "
+                "{'steps': [{'tool': '...', 'args': {}, 'description': '...'}]}"
             )
 
             response = await self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": sys_msg},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.4,
-                max_tokens=600
+                temperature=0.3,
+                max_tokens=600,
             )
 
             plan_data = json.loads(response.choices[0].message.content)
             steps_data = plan_data.get("steps", [])
 
-            steps = []
-            for i, s in enumerate(steps_data, 1):
-                steps.append(PlanStep(
-                    tool=s.get("tool", "none"),
-                    args=s.get("args", {}),
-                    description=s.get("description", "Unnamed step"),
-                    priority=i
-                ))
+            steps: List[PlanStep] = []
+            for i, step_data in enumerate(steps_data, start=1):
+                steps.append(
+                    PlanStep(
+                        tool=step_data.get("tool", "none"),
+                        args=step_data.get("args", {}),
+                        description=step_data.get("description", "Unnamed step"),
+                        priority=i,
+                        depends_on=step_data.get("depends_on"),
+                    )
+                )
 
             if not steps:
-                steps.append(PlanStep("none", {}, "Direct reasoning"))
+                steps = [PlanStep("none", {}, "Direct reasoning response", priority=1)]
 
             return Plan(steps)
 
@@ -133,56 +159,98 @@ class Planner:
             logger.error(f"LLM planning failed: {e}", exc_info=True)
             return self._get_static_fallback(intent, context)
 
-    def _build_planning_prompt(self, intent: str, context: Dict) -> str:
-        """Rich, structured prompt using all available context."""
-        prefs = json.dumps(context.get("persistent", {}), indent=2)
-        calendar = "\n".join([f"- {e.get('summary')} at {e.get('start')}" for e in context.get("calendar", [])[:3]]) or "No upcoming events."
+    def _build_planning_prompt(self, intent: str, context: Dict[str, Any]) -> str:
+        """Build planning prompt from the actual context shape used by MasterBrain."""
+        prefs = json.dumps(context.get("preferences", {}), indent=2)
+
+        calendar_items = context.get("calendar_events", [])[:3]
+        calendar_text = "\n".join(
+            f"- {event.get('summary', 'Untitled')} at {event.get('start', 'unknown time')}"
+            for event in calendar_items
+            if isinstance(event, dict)
+        ) or "No upcoming events."
+
+        semantic_mem = context.get("semantic_memory", [])
+        semantic_text = json.dumps(semantic_mem[:3], indent=2, default=str)
+
         time_str = context.get("current_time", "unknown")
         location = context.get("location", "Toronto")
+        intent_confidence = context.get("intent_confidence", "unknown")
 
         return f"""
 Intent: {intent}
-User query context: Use the following information to plan steps.
+Intent confidence: {intent_confidence}
 
-User preferences/facts:
+User preferences:
 {prefs}
 
-Calendar:
-{calendar}
+Recent semantic memory:
+{semantic_text}
 
-Time: {time_str}
-Location: {location}
+Upcoming calendar events:
+{calendar_text}
 
-Generate a short, logical plan using only available tools.
+Current time:
+{time_str}
+
+Location:
+{location}
+
+Generate a short logical plan using only available tools.
+If no tool is needed, return one step with tool "none".
 """
 
-    def _get_static_fallback(self, intent: str, context: Dict) -> Plan:
-        """Reliable static plan when LLM fails."""
-        steps = [PlanStep("none", {}, "General reasoning", priority=1)]
+    def _get_static_fallback(self, intent: str, context: Dict[str, Any]) -> Plan:
+        """Reliable static plan when LLM planning fails."""
+        steps: List[PlanStep] = [PlanStep("none", {}, "General reasoning", priority=1)]
 
-        if intent in ["email", "check_email", "summarize_emails"]:
+        if intent == "summarize_emails":
             steps = [
-                PlanStep("summarize_emails", {"query": "is:unread", "count": 3}, "Fetch latest unread emails", priority=1)
+                PlanStep(
+                    "summarize_emails",
+                    {"query": "is:unread label:inbox", "count": 3},
+                    "Fetch latest unread emails",
+                    priority=1,
+                )
             ]
 
-        elif intent in ["web_search", "weather", "news", "price"]:
+        elif intent == "weather":
             steps = [
-                PlanStep("web_search", {"query": intent}, "Fetch real-time information", priority=1),
-                PlanStep("none", {}, "Summarize results", priority=2)
+                PlanStep(
+                    "weather",
+                    {"location": context.get("location", "Toronto")},
+                    "Fetch weather for current location",
+                    priority=1,
+                )
+            ]
+
+        elif intent in {"web_search", "news", "price"}:
+            steps = [
+                PlanStep(
+                    "web_search",
+                    {"query": context.get("last_user_query", intent)},
+                    "Fetch real-time information",
+                    priority=1,
+                ),
+                PlanStep("none", {}, "Summarize results", priority=2),
             ]
 
         elif intent == "order_food":
             steps = [
-                PlanStep("order_food", {}, "Find and present food options", priority=1),
-                PlanStep("none", {}, "Confirm with user", priority=2)
+                PlanStep("food_suggest", {}, "Suggest food options", priority=1),
+                PlanStep("order_food", {}, "Place food order if appropriate", priority=2),
             ]
 
-        elif intent in ["calendar_event", "schedule"]:
+        elif intent in {"calendar_event", "schedule"}:
             steps = [
-                PlanStep("create_calendar_event", {}, "Parse and create event", priority=1)
+                PlanStep(
+                    "create_calendar_event",
+                    {},
+                    "Create a calendar event from parsed details",
+                    priority=1,
+                )
             ]
 
-        # Add proactive morning/evening briefing logic
         hour = datetime.now(timezone.utc).hour
         if 6 <= hour <= 10:
             steps.append(PlanStep("none", {}, "Offer morning briefing", priority=3))

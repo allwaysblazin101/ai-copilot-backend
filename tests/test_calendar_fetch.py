@@ -1,7 +1,7 @@
 from backend.services.google.google_auth import GoogleAuth
 from backend.services.calendar.calendar_service import CalendarService
 from backend.utils.logger import logger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 auth = GoogleAuth()
 creds = auth.credentials

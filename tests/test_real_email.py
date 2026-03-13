@@ -1,22 +1,19 @@
-import asyncio
-from backend.tools.tool_router import ToolRouter
+import pytest
 
+from backend.services.email.email_pipeline import EmailPipeline
+
+
+@pytest.mark.asyncio
 async def test_ai_email_summary():
-    router = ToolRouter()
-    
-    # This triggers the summarize_emails tool in your ToolRouter
-    result = await router.execute("summarize_emails", {
-        "query": "Uber OR Samsung", 
-        "count": 2
-    })
-    
-    if "summary" in result:
-        print("\n🤖 AI SUMMARY OF YOUR MAIL:")
-        print("-" * 30)
-        print(result["summary"])
-        print("-" * 30)
-    else:
-        print(f"Error: {result}")
+    # Reset shared singleton state so mocks from other tests do not leak in
+    EmailPipeline._service = None
+    EmailPipeline._classifier = None
+    EmailPipeline._tool_router = None
 
-if __name__ == "__main__":
-    asyncio.run(test_ai_email_summary())
+    pipeline = EmailPipeline()
+    result = await pipeline.process_new_email()
+
+    print(result)
+
+    assert isinstance(result, dict)
+    assert "summary" in result

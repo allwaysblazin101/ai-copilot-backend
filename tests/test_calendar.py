@@ -1,21 +1,21 @@
-# backend/tests/test_calendar.py
+import pytest
+
+from backend.services.google.google_auth import GoogleAuth
 from backend.services.calendar.calendar_service import CalendarService
-from backend.services.email.email_service import EmailService
-import datetime
 
-email_svc = EmailService()
-calendar = CalendarService(email_svc.creds)
 
-print("Upcoming events:")
-events = calendar.list_upcoming_events(max_results=5)
-for e in events:
-    print(f"- {e['start']} → {e['summary']}")
+def test_calendar_service_init():
+    auth = GoogleAuth()
+    calendar = CalendarService(creds=auth.credentials)
 
-# Example create (comment out after testing!)
-# result = calendar.create_event(
-#     "AI Test Meeting",
-#     datetime.datetime.now().isoformat(),
-#     (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat(),
-#     "Testing calendar integration"
-# )
-# print(result)
+    assert calendar is not None
+    assert hasattr(calendar, "list_upcoming_events")
+
+
+def test_list_upcoming_events_returns_list():
+    auth = GoogleAuth()
+    calendar = CalendarService(creds=auth.credentials)
+
+    result = calendar.list_upcoming_events(max_results=3)
+
+    assert isinstance(result, list)

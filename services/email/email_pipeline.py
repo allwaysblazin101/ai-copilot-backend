@@ -1,4 +1,5 @@
-# backend/services/email/email_pipeline.py
+import asyncio
+
 from backend.services.email.email_service import EmailService
 from backend.services.email.email_classifier import EmailClassifier
 from backend.tools.tool_router import ToolRouter
@@ -42,39 +43,44 @@ class EmailPipeline:
         if not self.owner_phone:
             logger.warning("No owner_phone configured — SMS notifications disabled")
 
-    def process_new_email(self):
+    async def process_new_email(self):
         logger.info("Starting new email processing cycle")
 
         emails = self.service.read_unread_emails(max_results=20)
 
         if not emails:
             logger.info("No new unread emails found")
-            return {"summary": "No new unread emails", "actions_taken": 0, "notifications": []}
+            return {
+                "summary": "No new unread emails",
+                "actions_taken": 0,
+                "notifications": [],
+            }
 
         actions_taken = 0
         notifications = []
         sms_parts = []
 
         for email in emails:
-            full_body = email['snippet']
+            full_body = email["snippet"]
+
             if len(full_body) < 200:
-                full_msg = self.service.get_message(email['id'])
+                full_msg = self.service.get_message(email["id"])
                 if full_msg:
-                    full_body = full_msg.get('snippet', '') or email['snippet']
+                    full_body = full_msg.get("snippet", "") or email["snippet"]
 
             classification = self.classifier.classify(
-                subject=email['subject'],
+                subject=email["subject"],
                 body=full_body,
-                sender=email['from']
+                sender=email["from"],
             )
 
-            category = classification.get('category', 'OTHER')
-            is_spam = classification.get('is_spam_or_ad', False)
-            is_bill = classification.get('is_bill_or_invoice', False)
-            is_personal = classification.get('is_personal_human', False)
-            brief = classification.get('brief_summary', email['snippet'][:100])
+            category = classification.get("category", "OTHER")
+            is_spam = classification.get("is_spam_or_ad", False)
+            is_bill = classification.get("is_bill_or_invoice", False)
+            is_personal = classification.get("is_personal_human", False)
+            brief = classification.get("brief_summary", email["snippet"][:100])
 
-            msg_id = email['id']
+            msg_id = email["id"]
 
             if is_spam:
                 self.service.trash_email(msg_id)
@@ -95,13 +101,16 @@ class EmailPipeline:
         if sms_parts:
             message_body = "AI Copilot Alert:\n\n" + "\n\n".join(sms_parts[:5])
             if len(sms_parts) > 5:
-                message_body += f"\n\n+ {len(sms_parts)-5} more important emails"
+                message_body += f"\n\n+ {len(sms_parts) - 5} more important emails"
 
             logger.info("Sending consolidated SMS notification")
-            send_result = self.tool_router.execute("send_sms", {
-                "to": self.owner_phone,
-                "body": message_body
-            })
+            send_result = await self.tool_router.execute(
+                "send_sms",
+                {
+                    "to": self.owner_phone,
+                    "body": message_body,
+                },
+            )
 
             notifications.append(send_result)
             logger.debug(f"SMS notification result: {send_result}")
@@ -113,11 +122,11 @@ class EmailPipeline:
             "summary": summary,
             "actions_taken": actions_taken,
             "notifications": notifications,
-            "important_count": len(sms_parts)
+            "important_count": len(sms_parts),
         }
 
 
 if __name__ == "__main__":
     pipeline = EmailPipeline()
-    result = pipeline.process_new_email()
+    result = asyncio.run(pipeline.process_new_email())
     print("\nPipeline result:", result)

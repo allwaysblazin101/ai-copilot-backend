@@ -1,13 +1,13 @@
-import asyncio
+import pytest
+
 from backend.memory.persistent_memory import PersistentMemoryStore
 
 
-def test_memory():
-
+@pytest.mark.asyncio
+async def test_memory():
     mem = PersistentMemoryStore()
 
-    print(mem.recall_recent())
+    result = await mem.recall_recent(user_id="test_user")
+    print(result)
 
-
-if __name__ == "__main__":
-    test_memory()
+    assert result is not None

@@ -1,9 +1,12 @@
 import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+
 from backend.utils.logger import logger
 from backend.config.settings import settings
+from backend.utils.startup_check import run_startup_check
 
 # Load .env with absolute path
 env_path = os.path.join(os.path.dirname(__file__), "secrets", ".env")
@@ -36,8 +39,7 @@ try:
     app.include_router(email_router, prefix="/email", tags=["Email"])
     logger.debug("[MAIN] Email routes included")
 
-    # 3. SMS routes (Webhook is registered here at /sms/webhook)
-    # Note: We use the full backend path to avoid "No module named tools" errors
+    # 3. SMS routes
     from backend.api.sms_routes import router as sms_router
     app.include_router(sms_router, prefix="/sms", tags=["SMS"])
     logger.info("[MAIN] SMS routes included – webhook live at /sms/webhook")
@@ -48,7 +50,18 @@ except ImportError as ie:
     logger.error(f"IMPORT ERROR during route loading: {ie}")
     logger.error("Check backend/api/sms_routes.py and backend/tools/ for internal imports without 'backend.' prefix")
 except Exception as e:
-    logger.error(f"GENERAL ROUTE LOAD ERROR: {e}")
+    logger.error(f"GENERAL ROUTE LOAD ERROR: {e}", exc_info=True)
+
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("[MAIN] FastAPI startup event triggered")
+    try:
+        result = await run_startup_check(send_sms_on_success=False)
+        logger.info(f"[MAIN] Startup check result: {result}")
+    except Exception as e:
+        logger.error(f"[MAIN] Startup check failed: {e}", exc_info=True)
+
 
 @app.get("/")
 def root():

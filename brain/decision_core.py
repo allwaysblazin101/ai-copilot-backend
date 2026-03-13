@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime  # ADD THIS LINE
 from openai import AsyncOpenAI
 from backend.config.settings import settings
 from backend.security.policy_guard import PolicyGuard
@@ -21,22 +22,43 @@ class DecisionCore:
             return {"action": "none", "status": "blocked"}
 
         # 2. Intelligent Mapping via LLM
+        # Logic: We inject current time so the AI knows what 'tomorrow' means
+        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
         prompt = f"""
-        Analyze the user's request and decide which tool to use.
-        User said: "{user_input}"
+        Analyze the user's request: "{user_input}"
+        Current Time: {current_time_str}
+        
+        Decide which tool is required to fulfill this request.
 
         AVAILABLE ACTIONS:
-        - summarize_emails: Use for checking, reading, or finding emails. 
-          Args: {{"query": "A valid Gmail search query", "count": 3}}
-          (Example: "is:unread", "from:Uber", "subject:Invoice")
-        - web_search: Use for real-time news, weather, or general info.
-          Args: {{"query": "search terms"}}
-        - send_sms: Use if the user explicitly wants to text someone.
-        - none: Use for casual chat or general questions.
+        - calendar_list: 
+          *Use for*: Checking the schedule, seeing upcoming meetings, or "What am I doing today?".
+          *Args*: {{"max_results": 5}}
+
+        - create_calendar_event: 
+          *Use for*: Adding, scheduling, or booking new events/reminders.
+          *Args*: {{"summary": "title", "start_time": "ISO string", "end_time": "ISO string", "location": "optional"}}
+          *Note*: If user doesn't specify end_time, default to 1 hour after start_time.
+
+        - summarize_emails: 
+          *Use for*: Checking, finding, or reading emails.
+          *Args*: {{"query": "Technical Gmail search operator", "count": 3}}
+          *Critical*: Convert to Gmail syntax (e.g., "from:Name", "is:unread").
+        
+        - web_search: 
+          *Use for*: Real-time news, weather, or general knowledge.
+          *Args*: {{"query": "search terms"}}
+        
+        - send_sms: 
+          *Use for*: Explicit requests to text someone.
+        
+        - none: 
+          *Use for*: General chat or greetings.
 
         Return ONLY valid JSON:
         {{
-          "action": "summarize_emails | web_search | send_sms | none",
+          "action": "calendar_list | create_calendar_event | summarize_emails | web_search | send_sms | none",
           "payload": {{}},
           "reasoning": "short explanation"
         }}
@@ -45,7 +67,10 @@ class DecisionCore:
         try:
             response = await self.client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are a logical routing engine. Output raw JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
                 response_format={"type": "json_object"},
                 temperature=0.1
             )
