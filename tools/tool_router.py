@@ -126,7 +126,7 @@ class ToolRouter:
     async def ibkr_account_summary(self, payload):
         svc = IBKRService(host="127.0.0.1", port=4002)
         return await asyncio.to_thread(svc.get_account_summary)
-        
+
     async def ibkr_portfolio_summary(self, payload):
         svc = IBKRService(host="127.0.0.1", port=4002)
 
@@ -159,7 +159,32 @@ class ToolRouter:
         if quantity <= 0:
             return {"success": False, "error": "Quantity must be greater than zero"}
 
+        allowed_symbols = {"AAPL", "MSFT", "SPY"}
+        if symbol not in allowed_symbols:
+            return {"success": False, "error": f"Symbol {symbol} is not allowed yet"}
+
+        if quantity > 2:
+            return {"success": False, "error": "Quantity exceeds safety limit of 2 shares"}
+
         svc = IBKRService(host="127.0.0.1", port=4002)
+
+        if action == "SELL":
+            positions_result = await asyncio.to_thread(svc.get_positions)
+            if not positions_result.get("success"):
+                return {"success": False, "error": "Could not verify current positions before sell"}
+
+            held_qty = 0.0
+            for pos in positions_result.get("positions", []):
+                if pos.get("symbol") == symbol:
+                    held_qty = float(pos.get("position", 0))
+                    break
+
+            if held_qty < quantity:
+                return {
+                    "success": False,
+                    "error": f"Cannot sell {quantity} {symbol}; current position is {held_qty}"
+                }
+
         return await asyncio.to_thread(
             svc.place_stock_market_order,
             symbol,
