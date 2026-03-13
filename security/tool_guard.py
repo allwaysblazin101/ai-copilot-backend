@@ -17,6 +17,7 @@ class ToolGuard:
         "summarize_emails",
         "weather",
         "ibkr_account_summary",
+        "ibkr_place_paper_order",
         "ibkr_positions",
         "ibkr_open_orders",
     }

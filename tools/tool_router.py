@@ -13,6 +13,7 @@ from backend.services.shopping.shopping_agent import ShoppingAgent
 from backend.services.food.food_order_agent import FoodOrderAgent
 from backend.services.finance.ibkr_service import IBKRService
 
+
 class ToolRouter:
     def __init__(self):
         self.twilio_client = None
@@ -54,6 +55,7 @@ class ToolRouter:
             "ibkr_account_summary": self.ibkr_account_summary,
             "ibkr_positions": self.ibkr_positions,
             "ibkr_open_orders": self.ibkr_open_orders,
+            "ibkr_place_paper_order": self.ibkr_place_paper_order,
         }
 
         handler = handlers.get(action)
@@ -72,7 +74,6 @@ class ToolRouter:
     # --------------------------------------------------
     # CALENDAR TOOLS
     # --------------------------------------------------
-    
 
     async def calendar_list(self, payload):
         """Fetch upcoming events."""
@@ -108,7 +109,7 @@ class ToolRouter:
         return result
 
     # --------------------------------------------------
-    # TOOLS
+    # FINANCE TOOLS
     # --------------------------------------------------
 
     async def ibkr_account_summary(self, payload):
@@ -123,6 +124,29 @@ class ToolRouter:
         svc = IBKRService(host="127.0.0.1", port=4002)
         return await asyncio.to_thread(svc.get_open_orders)
 
+    async def ibkr_place_paper_order(self, payload):
+        symbol = (payload.get("symbol") or "").upper().strip()
+        action = (payload.get("action") or "").upper().strip()
+        quantity = int(payload.get("quantity", 0))
+
+        if not symbol:
+            return {"success": False, "error": "Missing symbol"}
+        if action not in {"BUY", "SELL"}:
+            return {"success": False, "error": "Action must be BUY or SELL"}
+        if quantity <= 0:
+            return {"success": False, "error": "Quantity must be greater than zero"}
+
+        svc = IBKRService(host="127.0.0.1", port=4002)
+        return await asyncio.to_thread(
+            svc.place_stock_market_order,
+            symbol,
+            action,
+            quantity,
+        )
+
+    # --------------------------------------------------
+    # OTHER TOOLS
+    # --------------------------------------------------
 
     async def summarize_emails(self, payload):
         query = payload.get("query", "is:unread label:inbox")

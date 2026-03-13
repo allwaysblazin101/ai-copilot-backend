@@ -22,6 +22,31 @@ def normalize_phone(number: str | None) -> str:
     return "".join(ch for ch in str(number) if ch.isdigit())
 
 
+def parse_trade_command(text: str):
+    parts = text.strip().upper().split()
+    if len(parts) != 3:
+        return None
+
+    action, qty_text, symbol = parts
+
+    if action not in {"BUY", "SELL"}:
+        return None
+    if not qty_text.isdigit():
+        return None
+
+    quantity = int(qty_text)
+    if quantity < 1 or quantity > 2:
+        return None
+    if not symbol.isalpha() or len(symbol) > 8:
+        return None
+
+    return {
+        "action": action,
+        "quantity": quantity,
+        "symbol": symbol,
+    }
+
+
 router = APIRouter()
 
 try:
@@ -153,19 +178,55 @@ async def sms_webhook(
 
         elif owner_number and from_number == owner_number:
             pending = await reply_service.get_pending_reply(owner_number)
+            pending_trade = await reply_service.get_pending_trade(owner_number)
 
-            if pending and text_lower in {"yes", "send", "approve"}:
-                send_result = await tool_router.execute(
-                    "send_sms",
+            # --------------------------------------------------
+            # PENDING PAPER TRADE ACTIONS (PRIORITY FIRST)
+            # --------------------------------------------------
+            if pending_trade and text_lower in {"yes", "send", "approve"}:
+                result = await tool_router.execute(
+                    "ibkr_place_paper_order",
                     {
-                        "to": pending["original_sender"],
-                        "body": pending["suggested_reply"][:140],
+                        "symbol": pending_trade["symbol"],
+                        "action": pending_trade["action"],
+                        "quantity": pending_trade["quantity"],
                     },
                 )
-                await reply_service.clear_pending_reply(owner_number)
-                logger.info(f"Approved SMS reply sent: {send_result}")
-                reply_text = "Approved — reply sent."
+                logger.info(f"IBKR paper order result: {result}")
+                await reply_service.clear_pending_trade(owner_number)
 
+                if isinstance(result, dict) and result.get("success"):
+                    submitted = result.get("submitted_order", {})
+                    reply_text = (
+                        f"Paper order submitted: {submitted.get('action')} "
+                        f"{submitted.get('quantity')} {submitted.get('symbol')}."
+                    )
+                else:
+                    reply_text = (
+                        f"I couldn't place the paper order: "
+                        f"{result.get('error', 'unknown error')}"
+                    )
+
+            elif pending_trade and text_lower in {"no", "cancel", "stop"}:
+                await reply_service.clear_pending_trade(owner_number)
+                reply_text = "Cancelled — I did not place the paper order."
+
+            elif parse_trade_command(Body):
+                trade = parse_trade_command(Body)
+                await reply_service.save_pending_trade(
+                    owner_number=owner_number,
+                    symbol=trade["symbol"],
+                    action=trade["action"],
+                    quantity=trade["quantity"],
+                )
+                reply_text = (
+                    f"Proposed paper order: {trade['action']} {trade['quantity']} "
+                    f"{trade['symbol']}. Reply YES to place or NO to cancel."
+                )
+
+            # --------------------------------------------------
+            # PENDING SMS REPLY ACTIONS
+            # --------------------------------------------------
             elif pending and text_lower.startswith("edit "):
                 edited_reply = Body[5:].strip()
                 send_result = await tool_router.execute(
@@ -178,6 +239,18 @@ async def sms_webhook(
                 await reply_service.clear_pending_reply(owner_number)
                 logger.info(f"Edited SMS reply sent: {send_result}")
                 reply_text = "Edited reply sent."
+
+            elif pending and text_lower in {"yes", "send", "approve"}:
+                send_result = await tool_router.execute(
+                    "send_sms",
+                    {
+                        "to": pending["original_sender"],
+                        "body": pending["suggested_reply"][:140],
+                    },
+                )
+                await reply_service.clear_pending_reply(owner_number)
+                logger.info(f"Approved SMS reply sent: {send_result}")
+                reply_text = "Approved — reply sent."
 
             elif pending and text_lower in {"no", "cancel", "stop"}:
                 await reply_service.clear_pending_reply(owner_number)

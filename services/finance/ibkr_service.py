@@ -1,3 +1,4 @@
+# backend/services/finance/ibkr_service.py
 import random
 import threading
 import time
@@ -5,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
+from ibapi.contract import Contract
+from ibapi.order import Order
 
 from backend.utils.logger import logger
 
@@ -15,12 +18,14 @@ class IBKRApp(EWrapper, EClient):
         self.account_summary_data: List[Dict[str, Any]] = []
         self.positions_data: List[Dict[str, Any]] = []
         self.open_orders_data: List[Dict[str, Any]] = []
+        self.order_status_data: List[Dict[str, Any]] = []
         self.errors: List[Dict[str, Any]] = []
         self.next_order_id: Optional[int] = None
         self.done = {
             "account_summary": False,
             "positions": False,
             "open_orders": False,
+            "order_placed": False,
         }
 
     def nextValidId(self, orderId: int):
@@ -80,6 +85,33 @@ class IBKRApp(EWrapper, EClient):
     def openOrderEnd(self):
         self.done["open_orders"] = True
 
+    def orderStatus(
+        self,
+        orderId,
+        status,
+        filled,
+        remaining,
+        avgFillPrice,
+        permId,
+        parentId,
+        lastFillPrice,
+        clientId,
+        whyHeld,
+        mktCapPrice,
+    ):
+        self.order_status_data.append(
+            {
+                "orderId": orderId,
+                "status": status,
+                "filled": filled,
+                "remaining": remaining,
+                "avgFillPrice": avgFillPrice,
+                "lastFillPrice": lastFillPrice,
+                "clientId": clientId,
+            }
+        )
+        self.done["order_placed"] = True
+
 
 class IBKRService:
     def __init__(self, host: str = "127.0.0.1", port: int = 4002, client_id: int | None = None):
@@ -99,7 +131,10 @@ class IBKRService:
         thread = threading.Thread(target=app.run, daemon=True)
         thread.start()
 
-        time.sleep(2.0)
+        timeout = time.time() + 8
+        while app.next_order_id is None and time.time() < timeout:
+            time.sleep(0.2)
+
         return app, thread
 
     def _disconnect_app(self, app: IBKRApp):
@@ -165,6 +200,56 @@ class IBKRService:
             }
         except Exception as e:
             logger.error(f"IBKR open orders failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+        finally:
+            self._disconnect_app(app)
+
+    def place_stock_market_order(self, symbol: str, action: str, quantity: int) -> Dict[str, Any]:
+        app, _ = self._connect_app()
+        try:
+            if action not in {"BUY", "SELL"}:
+                return {"success": False, "error": f"Unsupported action: {action}"}
+
+            if quantity <= 0:
+                return {"success": False, "error": "Quantity must be greater than zero"}
+
+            if app.next_order_id is None:
+                return {"success": False, "error": "IBKR did not return a valid order id"}
+
+            contract = Contract()
+            contract.symbol = symbol.upper()
+            contract.secType = "STK"
+            contract.exchange = "SMART"
+            contract.currency = "USD"
+
+            order = Order()
+            order.action = action
+            order.orderType = "MKT"
+            order.totalQuantity = quantity
+
+            order_id = app.next_order_id
+            logger.info(f"Placing paper market order order_id={order_id} {action} {quantity} {symbol.upper()}")
+
+            app.placeOrder(order_id, contract, order)
+
+            timeout = time.time() + 10
+            while not app.done["order_placed"] and time.time() < timeout:
+                time.sleep(0.2)
+
+            return {
+                "success": True,
+                "submitted_order": {
+                    "orderId": order_id,
+                    "symbol": symbol.upper(),
+                    "action": action,
+                    "quantity": quantity,
+                    "orderType": "MKT",
+                },
+                "order_status": app.order_status_data,
+                "errors": app.errors,
+            }
+        except Exception as e:
+            logger.error(f"IBKR place order failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
         finally:
             self._disconnect_app(app)
