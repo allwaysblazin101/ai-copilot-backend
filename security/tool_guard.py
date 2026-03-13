@@ -16,6 +16,9 @@ class ToolGuard:
         "reply_email",
         "summarize_emails",
         "weather",
+        "ibkr_account_summary",
+        "ibkr_positions",
+        "ibkr_open_orders",
     }
 
     def allow(self, tool_name: str) -> bool:

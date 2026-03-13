@@ -11,7 +11,7 @@ from backend.tools.web_search import search_the_web
 from backend.services.email.email_service import EmailService
 from backend.services.shopping.shopping_agent import ShoppingAgent
 from backend.services.food.food_order_agent import FoodOrderAgent
-
+from backend.services.finance.ibkr_service import IBKRService
 
 class ToolRouter:
     def __init__(self):
@@ -51,6 +51,9 @@ class ToolRouter:
             "send_sms": self.send_sms,
             "reply_email": self.reply_email,
             "chat": self.chat,
+            "ibkr_account_summary": self.ibkr_account_summary,
+            "ibkr_positions": self.ibkr_positions,
+            "ibkr_open_orders": self.ibkr_open_orders,
         }
 
         handler = handlers.get(action)
@@ -69,6 +72,7 @@ class ToolRouter:
     # --------------------------------------------------
     # CALENDAR TOOLS
     # --------------------------------------------------
+    
 
     async def calendar_list(self, payload):
         """Fetch upcoming events."""
@@ -106,6 +110,19 @@ class ToolRouter:
     # --------------------------------------------------
     # TOOLS
     # --------------------------------------------------
+
+    async def ibkr_account_summary(self, payload):
+        svc = IBKRService(host="127.0.0.1", port=4002)
+        return await asyncio.to_thread(svc.get_account_summary)
+
+    async def ibkr_positions(self, payload):
+        svc = IBKRService(host="127.0.0.1", port=4002)
+        return await asyncio.to_thread(svc.get_positions)
+
+    async def ibkr_open_orders(self, payload):
+        svc = IBKRService(host="127.0.0.1", port=4002)
+        return await asyncio.to_thread(svc.get_open_orders)
+
 
     async def summarize_emails(self, payload):
         query = payload.get("query", "is:unread label:inbox")
