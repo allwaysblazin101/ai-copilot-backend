@@ -124,3 +124,37 @@ Rules:
             f"pending_trade:{owner_number}",
             payload,
         )
+
+    async def save_last_order(
+        self,
+        owner_number: str,
+        order_result: Dict[str, Any],
+    ) -> bool:
+        payload = {
+            "active": True,
+            "owner_number": owner_number,
+            "order_result": order_result,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return await self.memory.save_entity(
+            f"last_order:{owner_number}",
+            payload,
+        )
+
+    async def get_last_order(self, owner_number: str) -> Optional[Dict[str, Any]]:
+        data = await self.memory.get_entity(f"last_order:{owner_number}")
+        if not isinstance(data, dict):
+            return None
+        if not data.get("active"):
+            return None
+        return data
+
+    async def clear_last_order(self, owner_number: str) -> bool:
+        payload = {
+            "active": False,
+            "cleared_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return await self.memory.save_entity(
+            f"last_order:{owner_number}",
+            payload,
+        )

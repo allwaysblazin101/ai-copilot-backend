@@ -193,13 +193,18 @@ async def sms_webhook(
                     },
                 )
                 logger.info(f"IBKR paper order result: {result}")
+                await reply_service.save_last_order(owner_number, result)
                 await reply_service.clear_pending_trade(owner_number)
 
                 if isinstance(result, dict) and result.get("success"):
                     submitted = result.get("submitted_order", {})
+                    statuses = result.get("order_status", []) or []
+                    status_text = statuses[0].get("status") if statuses else "Submitted"
+
                     reply_text = (
                         f"Paper order submitted: {submitted.get('action')} "
-                        f"{submitted.get('quantity')} {submitted.get('symbol')}."
+                        f"{submitted.get('quantity')} {submitted.get('symbol')} "
+                        f"| Status: {status_text}"
                     )
                 else:
                     reply_text = (
@@ -255,6 +260,38 @@ async def sms_webhook(
             elif pending and text_lower in {"no", "cancel", "stop"}:
                 await reply_service.clear_pending_reply(owner_number)
                 reply_text = "Cancelled — I did not send the reply."
+
+            elif "last order" in text_lower or "order status" in text_lower:
+                last_order = await reply_service.get_last_order(owner_number)
+
+                if not last_order:
+                    reply_text = "I don't have a saved last order yet."
+                else:
+                    result = last_order.get("order_result", {}) or {}
+                    submitted = result.get("submitted_order", {}) or {}
+                    statuses = result.get("order_status", []) or []
+                    errors = result.get("errors", []) or []
+
+                    if submitted:
+                        parts = [
+                            f"{submitted.get('action', '?')} {submitted.get('quantity', '?')} {submitted.get('symbol', '?')}",
+                            f"orderId {submitted.get('orderId', '?')}",
+                        ]
+
+                        if statuses:
+                            latest = statuses[-1]
+                            parts.append(f"status {latest.get('status', '?')}")
+                            parts.append(f"filled {latest.get('filled', '?')}")
+                            parts.append(f"remaining {latest.get('remaining', '?')}")
+                        elif errors:
+                            latest_err = errors[-1]
+                            parts.append(f"error {latest_err.get('message', 'unknown')}")
+                        else:
+                            parts.append("status submitted")
+
+                        reply_text = "Last order: " + " | ".join(parts)
+                    else:
+                        reply_text = "I have a saved last order record, but it is incomplete."
 
             # --------------------------------------------------
             # OWNER'S NORMAL ASSISTANT FLOW
@@ -354,6 +391,43 @@ async def sms_webhook(
                 else:
                     reply_text = "I couldn't read your IBKR positions right now."
 
+            elif "portfolio" in text_lower:
+                logger.info("Using direct IBKR portfolio summary path")
+
+                portfolio_result = await tool_router.execute("ibkr_portfolio_summary", {})
+                logger.info(f"IBKR portfolio summary result: {portfolio_result}")
+
+                if isinstance(portfolio_result, dict) and portfolio_result.get("success"):
+                    account = portfolio_result.get("account_summary", {}) or {}
+                    positions = portfolio_result.get("positions", {}) or {}
+
+                    rows = (account.get("account_summary", []) or []) if isinstance(account, dict) else []
+                    wanted = {"NetLiquidation", "TotalCashValue", "BuyingPower"}
+                    picked = [r for r in rows if r.get("tag") in wanted]
+
+                    parts = []
+                    for row in picked:
+                        parts.append(
+                            f"{row.get('tag')}: {row.get('value')} {row.get('currency', '')}".strip()
+                        )
+
+                    pos_rows = (positions.get("positions", []) or []) if isinstance(positions, dict) else []
+                    if pos_rows:
+                        pos_text = ", ".join(
+                            f"{p.get('symbol')}: {p.get('position')}" for p in pos_rows[:3]
+                        )
+                    else:
+                        pos_text = "no positions"
+
+                    summary_bits = []
+                    if parts:
+                        summary_bits.append(" | ".join(parts))
+                    summary_bits.append(f"Positions: {pos_text}")
+
+                    reply_text = "Portfolio: " + " | ".join(summary_bits)
+                else:
+                    reply_text = "I couldn't read your portfolio right now."
+
             elif "open orders" in text_lower or "pending orders" in text_lower or "working orders" in text_lower:
                 logger.info("Using direct IBKR open orders fallback path")
 
@@ -369,7 +443,7 @@ async def sms_webhook(
                         parts = []
                         for order in orders[:3]:
                             parts.append(
-                                f"{order.get('action')} {order.get('totalQuantity')} {order.get('symbol')} ({order.get('status')})"
+                                f"{order.get('action')}: {order.get('totalQuantity')} {order.get('symbol')} ({order.get('status')})"
                             )
                         reply_text = "Open orders: " + " | ".join(parts)
                 else:

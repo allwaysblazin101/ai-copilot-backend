@@ -1,3 +1,4 @@
+# backend/tools/tool_router.py
 import asyncio
 from twilio.rest import Client
 
@@ -50,8 +51,10 @@ class ToolRouter:
             "food_suggest": self.food_suggest,
             "shop_search": self.shop_search,
             "send_sms": self.send_sms,
+            "ibkr_portfolio_summary": self.ibkr_portfolio_summary,
             "reply_email": self.reply_email,
             "chat": self.chat,
+            "ibkr_cancel_order": self.ibkr_cancel_order,
             "ibkr_account_summary": self.ibkr_account_summary,
             "ibkr_positions": self.ibkr_positions,
             "ibkr_open_orders": self.ibkr_open_orders,
@@ -112,9 +115,29 @@ class ToolRouter:
     # FINANCE TOOLS
     # --------------------------------------------------
 
+    async def ibkr_cancel_order(self, payload):
+        order_id = int(payload.get("order_id", 0))
+        if order_id <= 0:
+            return {"success": False, "error": "Missing or invalid order_id"}
+
+        svc = IBKRService(host="127.0.0.1", port=4002)
+        return await asyncio.to_thread(svc.cancel_order, order_id)
+
     async def ibkr_account_summary(self, payload):
         svc = IBKRService(host="127.0.0.1", port=4002)
         return await asyncio.to_thread(svc.get_account_summary)
+        
+    async def ibkr_portfolio_summary(self, payload):
+        svc = IBKRService(host="127.0.0.1", port=4002)
+
+        account = await asyncio.to_thread(svc.get_account_summary)
+        positions = await asyncio.to_thread(svc.get_positions)
+
+        return {
+            "success": True,
+            "account_summary": account,
+            "positions": positions,
+        }
 
     async def ibkr_positions(self, payload):
         svc = IBKRService(host="127.0.0.1", port=4002)

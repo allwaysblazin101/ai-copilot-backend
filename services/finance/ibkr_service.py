@@ -19,6 +19,7 @@ class IBKRApp(EWrapper, EClient):
         self.positions_data: List[Dict[str, Any]] = []
         self.open_orders_data: List[Dict[str, Any]] = []
         self.order_status_data: List[Dict[str, Any]] = []
+        self.cancel_status_data: List[Dict[str, Any]] = []
         self.errors: List[Dict[str, Any]] = []
         self.next_order_id: Optional[int] = None
         self.done = {
@@ -26,6 +27,7 @@ class IBKRApp(EWrapper, EClient):
             "positions": False,
             "open_orders": False,
             "order_placed": False,
+            "order_cancelled": False,
         }
 
     def nextValidId(self, orderId: int):
@@ -99,17 +101,21 @@ class IBKRApp(EWrapper, EClient):
         whyHeld,
         mktCapPrice,
     ):
-        self.order_status_data.append(
-            {
-                "orderId": orderId,
-                "status": status,
-                "filled": filled,
-                "remaining": remaining,
-                "avgFillPrice": avgFillPrice,
-                "lastFillPrice": lastFillPrice,
-                "clientId": clientId,
-            }
-        )
+        entry = {
+            "orderId": orderId,
+            "status": status,
+            "filled": filled,
+            "remaining": remaining,
+            "avgFillPrice": avgFillPrice,
+            "lastFillPrice": lastFillPrice,
+            "clientId": clientId,
+        }
+        self.order_status_data.append(entry)
+
+        if status in {"ApiCancelled", "Cancelled", "PendingCancel"}:
+            self.cancel_status_data.append(entry)
+            self.done["order_cancelled"] = True
+
         self.done["order_placed"] = True
 
 
@@ -226,6 +232,8 @@ class IBKRService:
             order.action = action
             order.orderType = "MKT"
             order.totalQuantity = quantity
+            order.eTradeOnly = False
+            order.firmQuoteOnly = False
 
             order_id = app.next_order_id
             logger.info(f"Placing paper market order order_id={order_id} {action} {quantity} {symbol.upper()}")
@@ -250,6 +258,31 @@ class IBKRService:
             }
         except Exception as e:
             logger.error(f"IBKR place order failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+        finally:
+            self._disconnect_app(app)
+
+    def cancel_order(self, order_id: int) -> Dict[str, Any]:
+        app, _ = self._connect_app()
+        try:
+            if order_id <= 0:
+                return {"success": False, "error": "Invalid order id"}
+
+            logger.info(f"Cancelling IBKR order_id={order_id}")
+            app.cancelOrder(order_id)
+
+            timeout = time.time() + 10
+            while not app.done["order_cancelled"] and time.time() < timeout:
+                time.sleep(0.2)
+
+            return {
+                "success": True,
+                "cancelled_order_id": order_id,
+                "cancel_status": app.cancel_status_data,
+                "errors": app.errors,
+            }
+        except Exception as e:
+            logger.error(f"IBKR cancel order failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
         finally:
             self._disconnect_app(app)
